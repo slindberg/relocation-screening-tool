@@ -81,8 +81,13 @@ score color ramp.
 **Export.** "Export shortlist" → CSV of the top N towns (respecting the active state
 filter) with their composite, per-criterion scores, and the weight/floor profile used.
 
-**Weight profiles.** Save named weight + floor profiles (persisted in `localStorage`) and
-reload or delete them. A compare view picks two profiles and shows how their top 10 differ.
+**Session persistence.** The current weights, toggles, floors, state filter, population
+floor, top-N, and basemap toggle are auto-saved to `localStorage` on every change and
+restored on reload, so a page refresh never loses the working configuration.
+
+**Weight profiles.** On top of that, save named weight + floor profiles (also in
+`localStorage`) and reload or delete them. A compare view picks two profiles and shows how
+their top 10 differ.
 
 ## Data Quality tab
 
