@@ -48,6 +48,17 @@ canvas { display:block; max-width:100%; }
 .ac-item.hi { background:#e8f0fe; }
 .ac-item b { font-weight:600; }
 .ac-sub { color:#6b7280; font-size:12px; }
+.dethead { position:relative; margin-bottom:10px; }
+.dethead .detx { position:absolute; top:0; right:0; border:1px solid #c3d0ee; background:#fff; color:#1a56db; border-radius:6px; padding:0 8px; font-size:15px; line-height:1.5; cursor:pointer; }
+.dethead .detx:hover { background:#eef3ff; }
+.dtitle { font-size:18px; font-weight:600; line-height:1.2; padding-right:34px; }
+.comp { margin:7px 0 9px; }
+.stats { margin-top:2px; display:grid; grid-template-columns:auto 1fr; gap:3px 14px; font-size:13px; max-width:280px; }
+.statrow { display:contents; }
+.statk { color:#6b7280; } .statv { color:#1d2129; }
+.detlinks { margin-top:10px; display:flex; gap:8px; }
+.detlinks a { font-size:12px; font-weight:600; color:#1a56db; text-decoration:none; border:1px solid #c3d0ee; border-radius:6px; padding:4px 10px; background:#fff; }
+.detlinks a:hover { background:#eef3ff; }
 input[type=range]{ width:100%; } input[type=number]{ width:70px; padding:3px 5px; border:1px solid #cfd4da; border-radius:4px; }
 .btn { background:#1a56db; color:#fff; border:none; border-radius:6px; padding:7px 13px; font-size:13px; font-weight:600; cursor:pointer; }
 .btn.sec { background:#fff; color:#1a56db; border:1px solid #c3d0ee; }
@@ -340,7 +351,7 @@ function buildExplore(){
   resCard.append(el('h2',{},'Ranked towns'),el('div',{id:'resmeta',class:'small muted'}),el('div',{id:'restable',style:'max-height:360px;overflow:auto'}));center.append(resCard);
   layout.append(center);
   const rightcol=el('div',{id:'detailcol'});
-  const detCard=el('div',{class:'card',style:'position:sticky;top:6px;max-height:calc(100vh - 14px);overflow:auto'});
+  const detCard=el('div',{class:'card',style:'position:sticky;top:6px'});
   detCard.append(el('div',{id:'detail',class:'detail muted'},'Select a town on the map or in the ranked list to see its full breakdown.'));
   rightcol.append(detCard);layout.append(rightcol);
   root.append(layout);refreshProfileList();requestAnimationFrame(sizeCompMap);
@@ -381,8 +392,23 @@ function renderDetail(){const d=$('#detail');if(!d)return;const o=DATA.rows.find
   const comp=lastComposite?lastComposite[o.id]:compositeFor(o);const rank=(lastOrder||[]).findIndex(x=>x[0].id===o.id);
   let den=0;for(const c of DATA.criteria){if(c.enabled&&c.weight>0&&o.s[c.scoreCol]!=null)den+=c.weight;}
   d.classList.remove('muted');
-  let h=`<div style="margin-bottom:8px"><button onclick="closeDetail()" title="Clear selection" style="float:right;border:1px solid #c3d0ee;background:#fff;color:#1a56db;border-radius:6px;padding:0 8px;font-size:15px;line-height:1.5;cursor:pointer">✕</button><b style="font-size:16px">${o.name}, ${o.state}</b> <span class="muted small">${o.county?o.county+' County · ':''}pop ${o.pop==null?'—':o.pop.toLocaleString()} · elev ${o.elev!=null?Math.round(o.elev).toLocaleString()+' ft':'—'} · ${o.lat.toFixed(2)}, ${o.lon.toFixed(2)}</span><br>
-    <span class="pill hi" style="font-size:13px">Composite ${fmt(comp,1)}</span> ${rank>=0?`<span class="small muted">rank #${rank+1} of ${lastOrder.length}</span>`:'<span class="small fail">excluded by a floor/filter</span>'}</div>`;
+  const q=encodeURIComponent(o.name+', '+o.state);
+  const gmaps='https://www.google.com/maps/search/?api=1&query='+q;
+  const zillow='https://www.zillow.com/homes/'+q+'_rb/';
+  const stats=[
+    o.county?['County', o.county]:null,
+    ['Population', o.pop==null?'—':o.pop.toLocaleString()],
+    o.elev!=null?['Elevation', Math.round(o.elev).toLocaleString()+' ft']:null,
+    ['Coordinates', o.lat.toFixed(3)+', '+o.lon.toFixed(3)]
+  ].filter(Boolean).map(([k,v])=>`<div class="statrow"><span class="statk">${k}</span><span class="statv">${v}</span></div>`).join('');
+  let h=`<div class="dethead">
+    <button onclick="closeDetail()" title="Clear selection" class="detx">✕</button>
+    <div class="dtitle">${o.name}, ${o.state}</div>
+    <div class="comp"><span class="pill hi" style="font-size:14px">Composite ${fmt(comp,1)}</span>
+      <span class="small muted" style="margin-left:6px">${rank>=0?`rank #${rank+1} of ${lastOrder.length}`:'excluded by a floor/filter'}</span></div>
+    <div class="stats">${stats}</div>
+    <div class="detlinks"><a href="${gmaps}" target="_blank" rel="noopener">Google Maps ↗</a><a href="${zillow}" target="_blank" rel="noopener">Zillow ↗</a></div>
+  </div>`;
   h+='<table class="dtl"><thead><tr><th>Criterion</th><th style="text-align:right">Score</th><th style="text-align:right">Contrib</th></tr></thead><tbody>';
   for(const c of DATA.criteria){const v=o.s[c.scoreCol];
     let rawTxt='—';if(c.raws.length){rawTxt=c.raws.map(rc=>{const rv=o._g[DATA.li[rc.col]];if(rv==null||rv==='')return null;const num=+rv;const disp=Number.isNaN(num)?rv:fmt(num,Math.abs(num)<10?2:0);const u=rc.units&&!/Y\/N/.test(rc.units)?' '+rc.units.split('(')[0].trim():'';return disp+u;}).filter(Boolean).join(', ')||'—';}
