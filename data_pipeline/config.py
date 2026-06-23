@@ -82,8 +82,15 @@ POP_URL = (
 )
 POP_VAR = "P1_001N"
 
-# Centroid elevation via the Open-Meteo Elevation API (Copernicus DEM GLO-90, 90 m,
-# free, no key, up to 100 coordinates per request). A key column, not a scored criterion.
+# Centroid elevation from Copernicus DEM GLO-90 (90 m) 1°×1° Cloud-Optimized GeoTIFF
+# tiles on the AWS Open Data bucket (public, no auth, no key). Only the tiles that
+# actually contain towns are downloaded and cached under data/raw/elevation/ — a
+# national run pulls a few hundred small COGs once, instead of hammering a rate-limited
+# API. Ocean tiles do not exist (treated as no data). Tile objects are keyed
+# Copernicus_DSM_COG_30_{N|S}LL_00_{E|W}LLL_00_DEM/<same>.tif. A key column, not scored.
+ELEVATION_DEM_BUCKET = "https://copernicus-dem-90m.s3.amazonaws.com"
+ELEVATION_DEM_DIR = DATA_RAW / "elevation"
+# Legacy rate-limited Open-Meteo Elevation API (no longer used; kept for reference).
 ELEVATION_API = "https://api.open-meteo.com/v1/elevation"
 
 # PRISM 30-year normals (1991-2020), v2 service. The old
@@ -157,17 +164,28 @@ WILDFIRE_NEIGHBORHOOD_PTS = 5       # 5x5 = 25 sample points per town
 
 
 # --------------------------------------------------------------------------- #
-# Observed smoke — EPA AQS PM2.5 (Phase 2)
+# Air quality — chronic annual-mean PM2.5 (gridded satellite surface)
 # --------------------------------------------------------------------------- #
-# Pre-generated daily files (no key): daily_<param>_<year>.zip. 88101 = PM2.5
-# FRM/FEM mass, 88502 = PM2.5 non-FRM. We count days with a 24-hr mean above the
-# threshold at each monitor, average over the years, and assign each town its
-# nearest monitor's smoke-days/yr. This captures actual smoke exposure (including
-# transported smoke), distinct from local burn probability (score_wildfire).
-AQS_BASE = "https://aqs.epa.gov/aqsweb/airdata/"
-AQS_PARAMS = ["88101", "88502"]
-AQS_YEARS = ["2021", "2022", "2023"]
-PM25_SMOKE_THRESHOLD = 35.0   # µg/m³, 24-hr (EPA daily standard)
+# A general air-quality criterion based on long-term ground-level fine-particulate
+# (PM2.5) concentration, rather than episodic wildfire-smoke days (which largely
+# duplicated score_wildfire). Chronic annual-mean PM2.5 is the standard exposure
+# metric in air-pollution epidemiology and reflects persistent particulate burden
+# (traffic, industry, agriculture, wood smoke, secondary aerosols) — a different
+# geography from local burn hazard, with full-grid coverage so rural towns aren't
+# tied to a distant monitor.
+#
+# Provide-once gridded surface (like NLCD): the research-grade products are portal/
+# Box-hosted with no stable direct URL. Download a recent CONUS annual-mean surface
+# PM2.5 file in µg/m³ — e.g. Washington University ACAG "Surface PM2.5" (van Donkelaar
+# et al., satellite-derived, ~0.01°),
+# https://sites.wustl.edu/acag/satellites/surface-pm2-5-archive/ — as a GeoTIFF (global
+# GWR) or a NetCDF (North-America regional). Drop the .tif/.nc in data/raw/pm25/ or set
+# the PM25_RASTER env var to its path. If you have a direct download URL, set
+# PM25_GRID_URL to use it. (air_quality.py samples either format.)
+PM25_GRID_URL = os.environ.get("PM25_GRID_URL", "")    # optional direct .tif/.zip URL
+PM25_RASTER = DATA_RAW / "pm25_annual_mean.tif"        # default provide-once raster
+PM25_NEIGHBORHOOD_M = 5000.0   # coastal-nodata fallback: sample a small grid …
+PM25_NEIGHBORHOOD_PTS = 3      # … 3x3 points within ±5 km, mean of the valid cells
 
 
 # --------------------------------------------------------------------------- #
@@ -346,24 +364,26 @@ CRITERIA = [
         ),
     },
     {
-        "name": "smoke",
-        "score_col": "score_smoke",
+        "name": "air_quality",
+        "score_col": "score_air_quality",
         "raw_cols": [
-            ("raw_smoke_days_per_yr", "days/yr with 24-hr PM2.5 > 35 µg/m³ at nearest AQS monitor"),
-            ("raw_nearest_pm25_monitor_km", "distance to that AQS monitor (km) — context"),
+            ("raw_annual_pm25_ugm3", "annual-mean ground-level PM2.5 (µg/m³)"),
         ],
         "units": "percentile (0-100)",
-        "source": "EPA AQS daily PM2.5 (88101 + 88502), 2021-2023, nearest monitor",
-        "source_date": "EPA AQS 2021-2023",
+        "source": "Satellite-derived annual-mean surface PM2.5 (WashU ACAG, van Donkelaar et al.), ~0.01° CONUS",
+        "source_date": "ACAG V5 (most recent annual mean provided)",
         "score_method": "percentile",
-        "higher_is_better": False,  # fewer smoke-days is better
-        "raw_for_score": "raw_smoke_days_per_yr",
+        "higher_is_better": False,  # lower chronic PM2.5 is better
+        "raw_for_score": "raw_annual_pm25_ugm3",
         "description": (
-            "Observed smoke / air-quality exposure: mean days per year with a 24-hr "
-            "PM2.5 average above 35 µg/m³ at the nearest EPA AQS monitor (2021-2023). "
-            "Fewer smoke-days scores higher. Captures actual (incl. transported) smoke, "
-            "complementing the local burn-probability hazard (score_wildfire). Monitor "
-            "coverage is sparse/urban-biased; the monitor distance is kept as context."
+            "Chronic air quality: long-term annual-mean ground-level fine-particulate "
+            "(PM2.5) concentration, sampled from a gridded satellite-derived surface. "
+            "Lower PM2.5 scores higher. This is the standard air-pollution-epidemiology "
+            "exposure metric and reflects persistent particulate burden (traffic, "
+            "industry, agriculture, wood smoke, secondary aerosols) — a different "
+            "geography from local wildfire burn hazard (score_wildfire), which the "
+            "former episodic smoke-days metric largely duplicated. Full-grid coverage, "
+            "so rural towns are not tied to a distant monitor."
         ),
     },
     {
@@ -378,8 +398,8 @@ CRITERIA = [
         "raw_for_score": "raw_burn_probability",
         "description": (
             "Local wildfire hazard: mean modelled annual burn probability in the "
-            "neighborhood of the town. Lower scores higher. Distinct from observed "
-            "smoke exposure (score_smoke), which includes transported smoke."
+            "neighborhood of the town. Lower scores higher. Distinct from chronic "
+            "particulate exposure (score_air_quality), which measures long-term PM2.5."
         ),
     },
     {
@@ -484,6 +504,28 @@ KEY_COLUMNS = [
     "place_geoid", "name", "state", "county", "county_fips",
     "lat", "lon", "elevation_ft", "population", "land_area_sqmi",
 ]
+
+
+# --------------------------------------------------------------------------- #
+# Data-coverage expectations (smoke test)
+# --------------------------------------------------------------------------- #
+# A column that is present in the matrix is expected to be (near-)complete: a stage
+# that ran should have produced a value for essentially every town. Partial coverage
+# — e.g. an elevation API that silently dropped most of its batches — is a real
+# failure that the median-imputation in the score_ columns would otherwise hide. The
+# smoke test fails if a checked column's non-null fraction falls below its threshold.
+COVERAGE_MIN_KEY = 0.99    # key columns that must be essentially complete
+COVERAGE_MIN_RAW = 0.95    # a criterion's raw columns (slack for grid-edge NaNs)
+# Key columns that should have data for every town. `population` is intentionally
+# excluded: it is optional (needs a Census API key) and may be legitimately empty.
+COVERAGE_KEY_COLUMNS = [
+    "place_geoid", "name", "state", "lat", "lon", "land_area_sqmi", "elevation_ft",
+]
+# Per-column overrides for legitimately partial coverage (column -> min fraction).
+COVERAGE_OVERRIDES: dict[str, float] = {
+    # e.g. a layer with a known coastal/edge gap:
+    # "raw_annual_pm25_ugm3": 0.90,
+}
 
 
 # --------------------------------------------------------------------------- #

@@ -18,13 +18,23 @@ def _band(series: pd.Series):
     return series.quantile(0.25), series.quantile(0.75)
 
 
+def _coverage(series: pd.Series) -> float:
+    """Fraction of rows with real data. Empty/whitespace strings count as missing so a
+    blank object column isn't mistaken for full coverage."""
+    if series.dtype == object:
+        nonnull = series.notna() & (series.astype(str).str.strip() != "")
+    else:
+        nonnull = series.notna()
+    return float(nonnull.mean()) if len(series) else 0.0
+
+
 SMALL_N = 200  # below this, percentile ranks and spread are not meaningful
 
 
 def run_smoke_tests(matrix: pd.DataFrame) -> dict:
     score_cols = [c for c in matrix.columns if c.startswith("score_")]
     small = len(matrix) < SMALL_N
-    report = {"anchors": [], "null_check": {}, "spread_check": {},
+    report = {"anchors": [], "null_check": {}, "spread_check": {}, "coverage_check": {},
               "hard_failures": [], "proxy_notes": [], "accepted_notes": [],
               "small_notes": [], "small": small, "n": int(len(matrix))}
 
@@ -79,6 +89,23 @@ def run_smoke_tests(matrix: pd.DataFrame) -> dict:
             else:
                 report["hard_failures"].append(f"{c}: degenerate spread (std={std:.1f})")
 
+    # Data coverage: a column that is present should be (near-)complete. The score_
+    # columns are median-imputed, so they never reveal gaps — check the underlying key
+    # and raw columns. A criterion that was skipped has no raw columns here at all, so
+    # only columns that actually ran are checked.
+    cov_targets = [(c, C.COVERAGE_MIN_KEY)
+                   for c in C.COVERAGE_KEY_COLUMNS if c in matrix.columns]
+    cov_targets += [(c, C.COVERAGE_OVERRIDES.get(c, C.COVERAGE_MIN_RAW))
+                    for c in matrix.columns if c.startswith("raw_")]
+    for c, thresh in cov_targets:
+        frac = _coverage(matrix[c])
+        report["coverage_check"][c] = {"frac": round(frac, 3), "min": thresh}
+        if frac < thresh:
+            n_missing = int(round((1.0 - frac) * len(matrix)))
+            report["hard_failures"].append(
+                f"{c}: only {frac:.0%} of towns have data ({n_missing:,} missing; "
+                f"expected >= {thresh:.0%})")
+
     report["passed"] = len(report["hard_failures"]) == 0
     return report
 
@@ -105,6 +132,17 @@ def print_report(report: dict) -> None:
     print("\n  Null scores:",
           "none" if not any(report["null_check"].values()) else report["null_check"])
     print("  Spread (std):", {k: v["std"] for k, v in report["spread_check"].items()})
+    cov = report.get("coverage_check", {})
+    if cov:
+        low = {k: v for k, v in cov.items() if v["frac"] < v["min"]}
+        if low:
+            print("  Coverage: GAPS — "
+                  + ", ".join(f"{k} {v['frac']:.0%} (need {v['min']:.0%})"
+                              for k, v in sorted(low.items(), key=lambda kv: kv[1]["frac"])))
+        else:
+            worst = min(cov.items(), key=lambda kv: kv[1]["frac"])
+            print(f"  Coverage: all {len(cov)} checked columns complete "
+                  f"(min {worst[1]['frac']:.0%}, {worst[0]})")
     if report["proxy_notes"]:
         print("\n  Proxy-limited (expected in Phase 1):")
         for m in report["proxy_notes"]:

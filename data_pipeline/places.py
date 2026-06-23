@@ -6,7 +6,6 @@ the lower 48, attach ACS population, spatially join each centroid to its county
 from __future__ import annotations
 
 import re
-import time
 
 import numpy as np
 import pandas as pd
@@ -87,36 +86,40 @@ def attach_population(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def attach_elevation(df: pd.DataFrame) -> pd.DataFrame:
-    """Centroid elevation (feet) from the Open-Meteo Elevation API (Copernicus DEM
-    GLO-90), batched at 100 coordinates per request. A key column; on failure the
-    affected rows are left null rather than failing the run."""
+    """Centroid elevation (feet) sampled from Copernicus DEM GLO-90 (90 m) 1°×1° COG
+    tiles on the AWS Open Data bucket. Towns are grouped by the tile that contains
+    them, so only the few hundred tiles with towns are downloaded (and cached under
+    data/raw/elevation/) — no rate-limited API, no full-CONUS mosaic. A key column;
+    towns whose tile can't be fetched are left null (and flagged by the coverage
+    smoke test) rather than failing the run."""
+    import math
+    from . import sampling
+
     lats = df["lat"].to_numpy(dtype="float64")
     lons = df["lon"].to_numpy(dtype="float64")
     elev_m = np.full(len(df), np.nan)
-    B = 100
-    n_fail = 0
-    for i in range(0, len(df), B):
-        la, lo = lats[i:i + B], lons[i:i + B]
-        try:
-            r = requests.get(
-                C.ELEVATION_API,
-                params={"latitude": ",".join(f"{x:.5f}" for x in la),
-                        "longitude": ",".join(f"{x:.5f}" for x in lo)},
-                timeout=60,
-            )
-            vals = r.json().get("elevation", [])
-            for j, v in enumerate(vals):
-                if v is not None:
-                    elev_m[i + j] = float(v)
-            time.sleep(0.2)
-        except Exception:
-            n_fail += 1
-    if n_fail:
-        print(f"[elevation] {n_fail} batch(es) failed; those rows left null")
+
+    # Bucket town row-indices by the 1°×1° DEM tile (lower-left integer corner).
+    tiles: dict[tuple[int, int], list[int]] = {}
+    for i in range(len(df)):
+        tiles.setdefault((math.floor(lats[i]), math.floor(lons[i])), []).append(i)
+
+    missing_tiles = 0
+    for (lat0, lon0), idxs in tiles.items():
+        tile_path = fetch.fetch_dem_tile(lat0, lon0)
+        if tile_path is None:
+            missing_tiles += 1
+            continue
+        ii = np.asarray(idxs)
+        # DEM tiles are EPSG:4326, so sample_raster samples lon/lat with no reprojection.
+        elev_m[ii] = sampling.sample_raster(lons[ii], lats[ii], tile_path)
+
     out = df.copy()
     out["elevation_ft"] = np.round(elev_m * 3.28084)
     got = int(np.isfinite(elev_m).sum())
-    print(f"[elevation] resolved {got}/{len(df)} place elevations")
+    print(f"[elevation] {len(tiles)} DEM tiles for {len(df):,} towns; "
+          f"resolved {got}/{len(df)}"
+          + (f"; {missing_tiles} tile(s) unavailable" if missing_tiles else ""))
     return out
 
 

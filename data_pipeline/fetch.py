@@ -269,23 +269,89 @@ def fetch_airports() -> Path:
     return _download(C.AIRPORTS_URL, dest)
 
 
-def fetch_aqs_daily(param: str, year: str) -> Path:
-    """Download + extract one EPA AQS daily concentration file (daily_<param>_<year>),
-    returning the extracted .csv path. Cached."""
-    out = C.DATA_RAW / "aqs" / f"daily_{param}_{year}.csv"
-    if out.exists() and out.stat().st_size > 0:
-        return out
-    out.parent.mkdir(parents=True, exist_ok=True)
-    url = f"{C.AQS_BASE}daily_{param}_{year}.zip"
-    r = _SESSION.get(url, timeout=300)
-    r.raise_for_status()
-    with zipfile.ZipFile(io.BytesIO(r.content)) as zf:
-        member = next(m for m in zf.namelist() if m.lower().endswith(".csv"))
-        tmp = out.with_suffix(".csv.part")
-        with zf.open(member) as src, open(tmp, "wb") as o:
-            shutil.copyfileobj(src, o)
-        tmp.rename(out)
-    return out
+def dem_tile_basename(lat0: int, lon0: int) -> str:
+    """Copernicus GLO-90 object/tile basename for the 1°×1° tile whose lower-left
+    corner is (lat0, lon0) — e.g. (47, -123) -> Copernicus_DSM_COG_30_N47_00_W123_00_DEM."""
+    ns = "N" if lat0 >= 0 else "S"
+    ew = "E" if lon0 >= 0 else "W"
+    return (f"Copernicus_DSM_COG_30_{ns}{abs(lat0):02d}_00_"
+            f"{ew}{abs(lon0):03d}_00_DEM")
+
+
+def fetch_dem_tile(lat0: int, lon0: int) -> Path | None:
+    """Local path to the Copernicus DEM GLO-90 tile whose lower-left corner is
+    (lat0, lon0), downloading it from the public AWS bucket if not already cached.
+    Returns None if the tile does not exist (ocean — HTTP 404) or cannot be fetched."""
+    name = dem_tile_basename(lat0, lon0)
+    out_dir = C.ELEVATION_DEM_DIR
+    # Accept an already-staged tile: flat, or the `aws s3 sync` folder layout.
+    for cand in (out_dir / f"{name}.tif", out_dir / name / f"{name}.tif"):
+        if cand.exists() and cand.stat().st_size > 0:
+            return cand
+    dest = out_dir / f"{name}.tif"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    url = f"{C.ELEVATION_DEM_BUCKET}/{name}/{name}.tif"
+    try:
+        with _SESSION.get(url, stream=True, timeout=120) as r:
+            if r.status_code == 404:
+                return None          # ocean / no tile here
+            r.raise_for_status()
+            tmp = dest.with_suffix(".tif.part")
+            with open(tmp, "wb") as fh:
+                for chunk in r.iter_content(chunk_size=1 << 20):
+                    fh.write(chunk)
+            tmp.rename(dest)
+        return dest
+    except Exception as exc:
+        print(f"[elevation] DEM tile {name} fetch failed ({exc})")
+        return None
+
+
+def fetch_pm25_grid() -> Path:
+    """Return the annual-mean PM2.5 GeoTIFF path. Resolution order:
+       1. PM25_RASTER env override, 2. any .tif in data/raw/pm25/, 3. the default
+       PM25_RASTER path if present, 4. download from PM25_GRID_URL if set.
+       Otherwise raise with clear provide-once instructions (the research-grade
+       PM2.5 surfaces are portal/Box-hosted with no stable direct URL)."""
+    override = os.environ.get("PM25_RASTER", "")
+    if override and Path(override).exists():
+        return Path(override)
+    out_dir = C.DATA_RAW / "pm25"
+    # Accept a GeoTIFF (.tif) or a NetCDF (.nc) — the ACAG North-America product ships
+    # as NetCDF; air_quality.attach_air_quality samples either format.
+    found = (sorted(out_dir.glob("*.tif")) + sorted(out_dir.glob("*.nc"))
+             if out_dir.exists() else [])
+    if found:
+        return found[0]
+    if C.PM25_RASTER.exists() and C.PM25_RASTER.stat().st_size > 0:
+        return C.PM25_RASTER
+    if C.PM25_GRID_URL:
+        try:
+            dest = C.DATA_RAW / ("pm25_dl" + Path(C.PM25_GRID_URL).suffix)
+            _download(C.PM25_GRID_URL, dest)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            if dest.suffix.lower() == ".zip":
+                with zipfile.ZipFile(dest) as zf:
+                    zf.extractall(out_dir)
+                rasters = [p for p in out_dir.rglob("*.tif")]
+                if rasters:
+                    dest.unlink(missing_ok=True)
+                    return rasters[0]
+            else:  # a direct .tif
+                target = out_dir / "pm25_annual_mean.tif"
+                dest.rename(target)
+                return target
+        except Exception as exc:
+            print(f"[air_quality] PM25_GRID_URL download failed ({exc}); falling back to manual.")
+    raise RuntimeError(
+        "PM2.5 annual-mean grid not found. Provide it once:\n"
+        "  • Download a recent CONUS annual-mean *surface PM2.5* file in µg/m³ — e.g. "
+        "WashU ACAG 'Surface PM2.5' (van Donkelaar et al.), "
+        "https://sites.wustl.edu/acag/satellites/surface-pm2-5-archive/ — as a GeoTIFF "
+        "(global GWR) or a NetCDF (North-America regional).\n"
+        "  • Then set env PM25_RASTER=/path/to/pm25.(tif|nc) (or drop the .tif/.nc in "
+        "data/raw/pm25/), or set PM25_GRID_URL to a direct download link."
+    )
 
 
 def fetch_padus_geojson() -> Path:

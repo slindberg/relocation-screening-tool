@@ -75,6 +75,12 @@ one-time setup:
 - **Population & Lyme incidence**: a free Census API key (`CENSUS_API_KEY`) fills the
   population column and the per-capita Lyme rate; without it those are left null and
   everything else still runs.
+- **Provide-once rasters**: two CONUS layers are distributed only as portal/bundle
+  downloads, so supply them once — NLCD land cover (nature access) and an annual-mean
+  surface PM2.5 grid (air quality, e.g. WashU ACAG — a global GeoTIFF or the
+  North-America NetCDF, both sampled automatically). Drop each into `data/raw/nlcd/` /
+  `data/raw/pm25/` or point `NLCD_RASTER` / `PM25_RASTER` at it; each criterion is
+  skipped gracefully if its file is absent.
 
 If any upstream URL has rotated, drop the file into `data/raw/` under the name the fetcher
 expects (see `data_pipeline/config.py`) and the pipeline will use it.
@@ -111,7 +117,7 @@ ranked across all towns. Each town keeps both the raw measured value and the sco
 | **Dryness** | Mould-growth propensity from a wetness composite of annual precipitation and annual mean relative humidity; drier scores higher. | PRISM 1991–2020 precipitation + dewpoint/temperature normals (4 km) |
 | **Pressure — diurnal** | Day-to-day comfort for the pressure-sensitive: mean daily swing (max − min) of sea-level pressure; smaller swings score higher. | ERA5 hourly mean-sea-level pressure, 2021–2023 (Copernicus CDS) |
 | **Pressure — synoptic** | Frontal frequency: standard deviation of daily-mean sea-level pressure; steadier scores higher (correctly flags stormy maritime regions). | ERA5 hourly mean-sea-level pressure, 2021–2023 (Copernicus CDS) |
-| **Smoke** | Observed air quality: mean days per year with a 24-hour PM2.5 average above 35 µg/m³ at the nearest monitor; fewer smoke-days score higher. Captures transported wildfire smoke, not just local fire. | EPA AQS daily PM2.5 (parameters 88101 + 88502), 2021–2023 |
+| **Air quality** | Chronic fine-particulate exposure: long-term annual-mean ground-level PM2.5, sampled from a gridded surface; cleaner air scores higher. A different geography from local fire hazard (which the former episodic smoke-days metric largely duplicated). | Satellite-derived annual-mean surface PM2.5 (WashU ACAG, van Donkelaar et al., ~0.01° CONUS) |
 | **Wildfire** | Local fire hazard: modelled annual burn probability around the town; lower scores higher. | USDA FSim 270 m burn probability, CONUS (RDS-2016-0034-3) |
 | **Lyme disease** | Tick-borne disease risk: county Lyme incidence (reported cases per 100k). Since most counties report essentially none, zero-case counties get the top score and only endemic counties are ranked below. | CDC reported Lyme cases by county (2023) ÷ county population |
 | **Nature access** | Access to wild land: nearness to a large protected area (GAP 1/2, ≥100 km²) combined with the fraction of natural land cover within 10 km; closer + wilder scores higher. | USGS PAD-US 4.0 + NLCD land cover (CONUS, 30 m) |
