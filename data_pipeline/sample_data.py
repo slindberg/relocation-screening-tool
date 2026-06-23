@@ -18,7 +18,7 @@ import pandas as pd
 RAW_COLS = [
     "raw_comfortable_day_fraction", "raw_days_above_85", "raw_days_below_50",
     "raw_annual_precip_in", "raw_mean_relative_humidity_pct", "raw_mean_dewpoint_f",
-    "raw_burn_probability", "raw_smoke_days_per_yr", "raw_nearest_pm25_monitor_km",
+    "raw_burn_probability", "raw_annual_pm25_ugm3",
     "raw_pressure_diurnal_hpa", "raw_pressure_synoptic_hpa",
     "raw_lyme_incidence_per_100k", "raw_lyme_cases_2023", "raw_tick_established",
     "raw_dist_to_protected_km", "raw_natural_cover_pct",
@@ -52,10 +52,9 @@ def _random_towns(n: int, rng: np.random.Generator) -> pd.DataFrame:
         "raw_mean_relative_humidity_pct": np.clip(rng.normal(60, 15, n), 20, 95),
         "raw_mean_dewpoint_f": np.clip(rng.normal(45, 6, n), 20, 65),
         "raw_burn_probability": np.clip(rng.normal(0.012, 0.01, n), 0, 0.08),
-        # smoke-days: zero-ish in much of the country, higher in the West / 2023 plume.
-        "raw_smoke_days_per_yr": np.where(
-            rng.random(n) < 0.4, 0.0, np.clip(rng.exponential(6, n), 0, 45)),
-        "raw_nearest_pm25_monitor_km": np.clip(rng.normal(35, 25, n), 1, 200),
+        # chronic PM2.5: most US towns ~3-10 µg/m³, with a dirtier tail (Central
+        # Valley, industrial corridors) reaching ~18.
+        "raw_annual_pm25_ugm3": np.clip(rng.normal(7.5, 2.5, n), 1.5, 18.0),
         "raw_pressure_diurnal_hpa": np.clip(rng.normal(4.0, 1.2, n), 1, 9),
         "raw_pressure_synoptic_hpa": np.clip(rng.normal(6.5, 2.0, n), 2, 13),
         # Lyme is zero-inflated: most counties report ~no cases; the NE/upper-Midwest
@@ -81,6 +80,9 @@ def _anchor(name, state, county, fips, lat, lon, **raw) -> dict:
         "place_geoid": f"AN{abs(hash((name, state))) % 100000:05d}",
         "name": name, "state": state, "county": county, "county_fips": fips,
         "lat": lat, "lon": lon, "population": 50000, "land_area_sqmi": 20.0,
+        # elevation isn't scored, but a key column should be complete for every town,
+        # including the anchors, so the coverage check sees a full column.
+        "elevation_ft": 1000.0,
     }
     base.update(raw)
     return base
@@ -99,7 +101,7 @@ def make_sample() -> pd.DataFrame:
                 raw_pressure_diurnal_hpa=4.2, raw_pressure_synoptic_hpa=9.8,
                 raw_tick_established="Y",
                 raw_lyme_incidence_per_100k=3.0, raw_lyme_cases_2023=8,
-                raw_annual_ghi=3.3),
+                raw_annual_pm25_ugm3=5.5, raw_annual_ghi=3.3),
         # San Luis Obispo, CA — mild marine, tiny diurnal swing, near coast.
         _anchor("San Luis Obispo", "CA", "San Luis Obispo", "06079", 35.28, -120.66,
                 raw_comfortable_day_fraction=0.90, raw_days_above_85=4, raw_days_below_50=14,
@@ -108,7 +110,7 @@ def make_sample() -> pd.DataFrame:
                 raw_pressure_diurnal_hpa=2.0, raw_pressure_synoptic_hpa=3.8,
                 raw_tick_established="Y",
                 raw_lyme_incidence_per_100k=4.0, raw_lyme_cases_2023=10,
-                raw_annual_ghi=5.3),
+                raw_annual_pm25_ugm3=7.0, raw_annual_ghi=5.3),
         # Santa Fe, NM — sunny, dry, high-desert big diurnal swing, no established ticks.
         _anchor("Santa Fe", "NM", "Santa Fe", "35049", 35.69, -105.94,
                 raw_comfortable_day_fraction=0.62, raw_days_above_85=20, raw_days_below_50=110,
@@ -117,7 +119,7 @@ def make_sample() -> pd.DataFrame:
                 raw_pressure_diurnal_hpa=6.6, raw_pressure_synoptic_hpa=6.0,
                 raw_tick_established="N",
                 raw_lyme_incidence_per_100k=0.0, raw_lyme_cases_2023=0,
-                raw_annual_ghi=6.0),
+                raw_annual_pm25_ugm3=4.5, raw_annual_ghi=6.0),
         # Phoenix, AZ — extreme heat, very dry, very sunny.
         _anchor("Phoenix", "AZ", "Maricopa", "04013", 33.45, -112.07,
                 raw_comfortable_day_fraction=0.40, raw_days_above_85=175, raw_days_below_50=8,
@@ -126,7 +128,7 @@ def make_sample() -> pd.DataFrame:
                 raw_pressure_diurnal_hpa=3.4, raw_pressure_synoptic_hpa=4.4,
                 raw_tick_established="N",
                 raw_lyme_incidence_per_100k=0.3, raw_lyme_cases_2023=2,
-                raw_annual_ghi=6.3),
+                raw_annual_pm25_ugm3=8.5, raw_annual_ghi=6.3),
         # International Falls, MN — brutal cold, low sun.
         _anchor("International Falls", "MN", "Koochiching", "27071", 48.60, -93.41,
                 raw_comfortable_day_fraction=0.34, raw_days_above_85=2, raw_days_below_50=238,
@@ -135,7 +137,7 @@ def make_sample() -> pd.DataFrame:
                 raw_pressure_diurnal_hpa=4.6, raw_pressure_synoptic_hpa=9.6,
                 raw_tick_established="Y",
                 raw_lyme_incidence_per_100k=25.0, raw_lyme_cases_2023=5,
-                raw_annual_ghi=3.6),
+                raw_annual_pm25_ugm3=4.0, raw_annual_ghi=3.6),
         # Hartford, CT — humid east, Lyme epicenter.
         _anchor("Hartford", "CT", "Hartford", "09003", 41.76, -72.67,
                 raw_comfortable_day_fraction=0.50, raw_days_above_85=18, raw_days_below_50=120,
@@ -144,7 +146,7 @@ def make_sample() -> pd.DataFrame:
                 raw_pressure_diurnal_hpa=4.0, raw_pressure_synoptic_hpa=8.2,
                 raw_tick_established="Y",
                 raw_lyme_incidence_per_100k=120.0, raw_lyme_cases_2023=900,
-                raw_annual_ghi=3.9),
+                raw_annual_pm25_ugm3=7.0, raw_annual_ghi=3.9),
     ]
     df = pd.concat([towns, pd.DataFrame(anchors)], ignore_index=True)
     return df

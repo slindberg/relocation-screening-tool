@@ -106,7 +106,7 @@ def assemble(df: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
         "land_area_sqmi": "square miles",
     }
     key_sources = {
-        "elevation_ft": "Open-Meteo Elevation API (Copernicus DEM GLO-90, 90 m)",
+        "elevation_ft": "Copernicus DEM GLO-90 (90 m) tiles, AWS Open Data",
         "population": "2020 Census decennial (P1_001N)",
     }
     for k in C.KEY_COLUMNS:
@@ -177,7 +177,7 @@ def _raw_units(col: str) -> str:
         "raw_annual_precip_in": "inches/yr",
         "raw_mean_dewpoint_f": "°F", "raw_mean_relative_humidity_pct": "%",
         "raw_burn_probability": "probability (0-1)",
-        "raw_smoke_days_per_yr": "days/yr", "raw_nearest_pm25_monitor_km": "km",
+        "raw_annual_pm25_ugm3": "µg/m³",
         "raw_pop_within_50km": "persons", "raw_dist_to_city_km": "km",
         "raw_place_density_per_sqmi": "persons/sq mi",
         "raw_dist_to_protected_km": "km", "raw_natural_cover_pct": "%",

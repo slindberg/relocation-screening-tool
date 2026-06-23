@@ -51,9 +51,9 @@ def stage_specs() -> list[dict]:
          "out": ["raw_burn_probability"],
          "deps": [C.WRC_BP_URL, C.WILDFIRE_NEIGHBORHOOD_M, C.WILDFIRE_NEIGHBORHOOD_PTS],
          "version": 1},
-        {"name": "smoke",
-         "out": ["raw_smoke_days_per_yr", "raw_nearest_pm25_monitor_km"],
-         "deps": [C.AQS_PARAMS, C.AQS_YEARS, C.PM25_SMOKE_THRESHOLD],
+        {"name": "air_quality",
+         "out": ["raw_annual_pm25_ugm3"],
+         "deps": [C.PM25_GRID_URL],
          "version": 1},
         {"name": "lyme",
          "out": ["raw_lyme_incidence_per_100k", "raw_lyme_cases_2023", "raw_tick_established"],
@@ -122,7 +122,7 @@ def build_or_load_base(anchors_only: bool, force: bool = False):
 
 
 def build_real_matrix(anchors_only: bool = False, force: set[str] | None = None):
-    from data_pipeline import (places, sampling, ticks, era5, smoke_pm25, isolation, nature,
+    from data_pipeline import (places, sampling, ticks, era5, air_quality, isolation, nature,
                         airports, amenities)
 
     force = force or set()
@@ -135,7 +135,7 @@ def build_real_matrix(anchors_only: bool = False, force: set[str] | None = None)
     # Basic geographic key column (cached like a stage; not a scored criterion).
     df0 = cache.run_stage(
         {"name": "elevation", "fn": places.attach_elevation,
-         "out": ["elevation_ft"], "deps": [C.ELEVATION_API], "version": 1},
+         "out": ["elevation_ft"], "deps": [C.ELEVATION_DEM_BUCKET], "version": 2},
         base, coords_sig, force=all_ or "elevation" in force)
     base = df0
 
@@ -144,7 +144,7 @@ def build_real_matrix(anchors_only: bool = False, force: set[str] | None = None)
         "dryness": sampling.dryness,
         "pressure": era5.sample_pressure,
         "wildfire": sampling.wildfire,
-        "smoke": smoke_pm25.attach_smoke,
+        "air_quality": air_quality.attach_air_quality,
         "lyme": ticks.attach_lyme,
         "nature_access": nature.attach_nature_access,
         "airport": airports.attach_airport,
