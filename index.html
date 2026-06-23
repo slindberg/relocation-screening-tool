@@ -10,10 +10,11 @@
 body { margin:0; background:#f7f8fa; color:#1d2129; font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
 h1,h2,h3 { font-weight:600; margin:0 0 .4em; }
 h1{ font-size:19px; margin:0; line-height:1.15; }
-.topbar{ display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:4px; }
+.topbar{ display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin:0; }
+.hdr{ display:grid; grid-template-columns:1fr auto 1fr; align-items:end; gap:10px; margin-bottom:8px; border-bottom:2px solid #e3e6ea; }
 h2 { font-size:16px; } h3 { font-size:13px; color:#444; text-transform:uppercase; letter-spacing:.04em;}
 .wrap { max-width:1860px; margin:0 auto; padding:6px 10px; }
-.tabs { display:flex; gap:4px; border-bottom:2px solid #e3e6ea; margin-bottom:8px; }
+.tabs { display:flex; gap:4px; justify-content:center; }
 .tab { padding:5px 14px; cursor:pointer; border:none; background:none; font-size:13px; font-weight:600; color:#6b7280; border-bottom:2px solid transparent; margin-bottom:-2px; }
 .tab.active { color:#1a56db; border-bottom-color:#1a56db; }
 .card { background:#fff; border:1px solid #e3e6ea; border-radius:8px; padding:12px; margin-bottom:12px; }
@@ -41,6 +42,12 @@ canvas { display:block; max-width:100%; }
 .crit-bot input[type=number]{ width:46px; text-align:right; flex:none; padding:3px 4px; }
 .crit-row.off .cname { color:#9aa1ab; font-weight:500; }
 .crit-row.off .crit-bot { opacity:.45; }
+.acwrap { position:relative; display:inline-block; }
+.ac { position:absolute; left:0; top:100%; margin-top:2px; z-index:40; background:#fff; border:1px solid #cfd4da; border-radius:6px; box-shadow:0 8px 22px rgba(0,0,0,.14); min-width:190px; max-height:280px; overflow:auto; }
+.ac-item { padding:5px 9px; font-size:13px; cursor:pointer; white-space:nowrap; }
+.ac-item.hi { background:#e8f0fe; }
+.ac-item b { font-weight:600; }
+.ac-sub { color:#6b7280; font-size:12px; }
 input[type=range]{ width:100%; } input[type=number]{ width:70px; padding:3px 5px; border:1px solid #cfd4da; border-radius:4px; }
 .btn { background:#1a56db; color:#fff; border:none; border-radius:6px; padding:7px 13px; font-size:13px; font-weight:600; cursor:pointer; }
 .btn.sec { background:#fff; color:#1a56db; border:1px solid #c3d0ee; }
@@ -65,10 +72,13 @@ select { padding:4px 6px; border:1px solid #cfd4da; border-radius:4px; }
 </head>
 <body>
 <div class="wrap">
-  <div class="topbar"><h1>Relocation Screening</h1><div class="muted small" id="subhead"><span class="spin"></span> Decoding data snapshot…</div></div>
-  <div class="tabs" id="tabs" style="display:none">
-    <button class="tab active" data-mode="explore">Explore &amp; Weight</button>
-    <button class="tab" data-mode="quality">Data Quality</button>
+  <div class="hdr">
+    <div class="topbar"><h1>Relocation Screening</h1><div class="muted small" id="subhead"><span class="spin"></span> Decoding data snapshot…</div></div>
+    <div class="tabs" id="tabs" style="display:none">
+      <button class="tab active" data-mode="explore">Explore &amp; Weight</button>
+      <button class="tab" data-mode="quality">Data Quality</button>
+    </div>
+    <div></div>
   </div>
   <div id="errbox"></div>
   <div id="quality" class="mode"></div>
@@ -138,13 +148,22 @@ async function boot(){
     const raws=(rawGroups[c]||[]).filter(rc=>rc in li).map(rc=>({col:rc,desc:(meta[rc]||{}).description||prettify(rc),units:(meta[rc]||{}).units||''}));
     return {key:c.replace(/^score_/,''),scoreCol:c,label:prettify(c),desc:md.description||'',units:md.units||'percentile (0-100)',source:md.source||'',raws,enabled:true,weight:5,floor:null};});
   DATA={li,scoreCols,criteria,meta,rows};
+  // restore last session (weights/toggles/floors + view settings) from localStorage
+  const _sess=loadSession();
+  if(_sess){
+    if(_sess.crit) criteria.forEach(c=>{const s=_sess.crit[c.key]; if(s){ if(typeof s.enabled==='boolean')c.enabled=s.enabled; if(typeof s.weight==='number')c.weight=s.weight; c.floor=(s.floor==null?null:+s.floor); }});
+    if(typeof _sess.basemap==='boolean') showBasemap=_sess.basemap;
+    if(_sess.state) curState=_sess.state;
+    DATA._sess=_sess;
+  }
   // basemap + relief assets
   try{const bm=await fetch(ASSET_DIR+'basemap.json',{cache:'no-cache'}); if(bm.ok){BM=await bm.json(); if(BM&&BM.mb)MB={minx:BM.mb[0],maxx:BM.mb[1],miny:BM.mb[2],maxy:BM.mb[3]};}}catch(e){BM=null;}
   reliefImg=new Image(); reliefImg.onload=()=>{if(MODE==='explore')redrawCompMap();}; reliefImg.onerror=()=>{reliefImg=null;}; reliefImg.src=ASSET_DIR+'relief.png';
-  $('#subhead').innerHTML=`${rows.length.toLocaleString()} towns · ${scoreCols.length} scored criteria · data from <code>${DATA_DIR}</code>`;
+  $('#subhead').innerHTML=`${rows.length.toLocaleString()} towns · ${scoreCols.length} scored criteria`;
   $('#tabs').style.display='flex';
   $('#tabs').querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>setMode(t.dataset.mode)));
   buildQuality(); buildExplore(); setMode('explore');
+  if(curState) requestAnimationFrame(()=>{fitState();redrawCompMap();});
 }
 function showErr(msg,detail){ $('#subhead').textContent='Failed to load data.';
   $('#errbox').innerHTML=`<div class="err"><b>Data not available.</b><br>${msg}<br><span class="small muted">${detail||''}</span></div>`; }
@@ -168,14 +187,17 @@ function drawMap(canvas,valueFn,opts={}){if(!MB)MB=computeMapBounds();const ctx=
     ctx.beginPath();ctx.arc(sel.x,sel.y,dr,0,6.2832);ctx.fillStyle=color(sel.v);ctx.fill();ctx.lineWidth=1.5;ctx.strokeStyle='#111';ctx.beginPath();ctx.arc(sel.x,sel.y,dr,0,6.2832);ctx.stroke();}}
 function drawBasemap(ctx,px,py,z,tx,ty,s){
   const dpr=Math.min(2,window.devicePixelRatio||1);
-  if(reliefImg&&reliefImg.complete&&reliefImg.naturalWidth){const dx=px(MB.minx)*z+tx,dy=py(MB.maxy)*z+ty,dw=(MB.maxx-MB.minx)*s*z,dh=(MB.maxy-MB.miny)*s*z;ctx.save();ctx.globalAlpha=0.55;ctx.drawImage(reliefImg,dx,dy,dw,dh);ctx.restore();}
+  // water as a full-canvas background (no rectangular relief edge when panning)
+  ctx.save();ctx.fillStyle='#dde8f3';ctx.fillRect(0,0,ctx.canvas.width,ctx.canvas.height);ctx.restore();
+  if(reliefImg&&reliefImg.complete&&reliefImg.naturalWidth){const dx=px(MB.minx)*z+tx,dy=py(MB.maxy)*z+ty,dw=(MB.maxx-MB.minx)*s*z,dh=(MB.maxy-MB.miny)*s*z;ctx.drawImage(reliefImg,dx,dy,dw,dh);}
   const T=(lon,lat)=>{const a=albers(lon,lat);return [px(a[0])*z+tx,py(a[1])*z+ty];};
   const trace=ring=>{ctx.beginPath();for(let i=0;i<ring.length;i++){const p=T(ring[i][0],ring[i][1]);if(i===0)ctx.moveTo(p[0],p[1]);else ctx.lineTo(p[0],p[1]);}};
-  if(BM.coast){ctx.strokeStyle='rgba(108,150,182,0.6)';ctx.lineWidth=Math.max(0.5,0.6*Math.min(2.5,Math.sqrt(z)))*dpr;for(const ln of BM.coast){trace(ln);ctx.stroke();}}
-  ctx.fillStyle='#dceaf6';for(const ring of BM.lakes){trace(ring);ctx.closePath();ctx.fill();}
+  if(BM.coast){ctx.strokeStyle='rgba(132,158,182,0.4)';ctx.lineWidth=Math.max(0.4,0.5*Math.min(2.2,Math.sqrt(z)))*dpr;for(const ln of BM.coast){trace(ln);ctx.stroke();}}
+  if(BM.lakes){ctx.fillStyle='#dceaf6';for(const ring of BM.lakes){trace(ring);ctx.closePath();ctx.fill();}}
   ctx.strokeStyle='rgba(130,175,210,0.5)';ctx.lineWidth=Math.max(0.5,0.6*Math.min(2,Math.sqrt(z)))*dpr;for(const ln of BM.rivers){trace(ln);ctx.stroke();}
   if(BM.roads){ctx.strokeStyle='rgba(210,160,110,0.35)';ctx.lineWidth=Math.max(0.45,0.55*Math.min(2,Math.sqrt(z)))*dpr;for(const ln of BM.roads){trace(ln);ctx.stroke();}}
   ctx.strokeStyle='rgba(120,128,140,0.16)';ctx.lineWidth=0.55*dpr;for(const ring of BM.states){trace(ring);ctx.stroke();}
+  if(BM.natl){ctx.strokeStyle='rgba(120,140,162,0.5)';ctx.lineWidth=Math.max(0.4,0.5*Math.min(2.2,Math.sqrt(z)))*dpr;for(const ln of BM.natl){trace(ln);ctx.stroke();}}
 }
 function hitTest(canvas,mx,my,pf=0){let best=null,bd=120;const v=canvas._view||{z:1,tx:0,ty:0},rows=DATA.rows;for(let i=0;i<rows.length;i++){const o=rows[i];if(curState&&o.state!==curState)continue;if(o.lat<24||o.lat>50||o.lon<-125||o.lon>-66)continue;if(pf&&(o.pop||0)<pf)continue;const[X,Y]=albers(o.lon,o.lat),cx=canvas._px(X)*v.z+v.tx,cy=canvas._py(Y)*v.z+v.ty,d=(cx-mx)**2+(cy-my)**2;if(d<bd){bd=d;best=o;}}return best;}
 function drawHist(canvas,col){const ctx=canvas.getContext('2d'),W=canvas.width,H=canvas.height;ctx.clearRect(0,0,W,H);const bins=new Array(20).fill(0);for(const o of DATA.rows){const v=o.s[col];if(v==null||Number.isNaN(v))continue;let b=Math.floor(v/5);if(b>19)b=19;if(b<0)b=0;bins[b]++;}const mx=Math.max(...bins),bw=W/20;for(let i=0;i<20;i++){const h=mx?bins[i]/mx*(H-2):0;ctx.fillStyle=color(i/19);ctx.fillRect(i*bw+1,H-h,bw-2,h);}}
@@ -212,13 +234,52 @@ function kpi(v,l){return el('div',{class:'kpi'},el('b',{},String(v)),el('span',{
 function legend(){return el('div',{class:'legend',style:'margin-bottom:8px;justify-content:center'},'Score: low ',el('span',{class:'legbar'}),' high (0–100)');}
 function selectAndExplore(id){selectedId=id;setMode('explore');renderResults();openDetail();}
 
+// reusable keyboard-navigable autocomplete: wraps an input, returns the wrapper to insert.
+// getItems(query)->[{label,sub,value}]; onPick(item). Arrow/Tab cycle, Enter selects, Esc closes.
+function makeCombo(input,getItems,onPick){
+  const wrap=el('span',{class:'acwrap'}); const list=el('div',{class:'ac',style:'display:none'}); wrap.append(input,list);
+  let items=[],hi=-1,open=false;
+  const close=()=>{list.style.display='none';open=false;};
+  const paint=()=>{[...list.children].forEach((d,i)=>d.classList.toggle('hi',i===hi));};
+  function render(){list.innerHTML='';if(!items.length){close();return;}items.forEach((it,i)=>{const d=el('div',{class:'ac-item'},el('b',{},it.label),it.sub?el('span',{class:'ac-sub'},' '+it.sub):null);d.addEventListener('mousedown',e=>{e.preventDefault();choose(i);});d.addEventListener('mousemove',()=>{hi=i;paint();});list.append(d);});hi=0;open=true;list.style.display='block';paint();}
+  function refresh(){items=getItems(input.value)||[];render();}
+  function choose(i){if(i<0||i>=items.length)return;close();onPick(items[i]);}
+  input.setAttribute('autocomplete','off');
+  input.addEventListener('input',refresh);
+  input.addEventListener('focus',refresh);
+  input.addEventListener('blur',()=>setTimeout(close,150));
+  input.addEventListener('keydown',e=>{
+    if(!open&&(e.key==='ArrowDown'||e.key==='ArrowUp')){refresh();return;}
+    if(e.key==='ArrowDown'||(e.key==='Tab'&&!e.shiftKey)){if(open&&items.length){e.preventDefault();hi=(hi+1)%items.length;paint();}}
+    else if(e.key==='ArrowUp'||(e.key==='Tab'&&e.shiftKey)){if(open&&items.length){e.preventDefault();hi=(hi-1+items.length)%items.length;paint();}}
+    else if(e.key==='Enter'){if(open&&hi>=0){e.preventDefault();choose(hi);}}
+    else if(e.key==='Escape'){close();}
+  });
+  return wrap;
+}
+function getStateItems(q){q=(q||'').trim().toLowerCase();const C=DATA._counts||{};let a=(DATA._states||[]).map(s=>({label:STATE_NAMES[s]||s,sub:'· '+(C[s]||0),value:s}));if(q)a=a.filter(it=>it.label.toLowerCase().startsWith(q)||it.value.toLowerCase()===q||it.label.toLowerCase().includes(q));return a;}
+function pickState(it){const si=$('#stateFilter');if(si)si.value=it.label;curState=it.value;selectedId=null;fitState();renderResults();redrawCompMap();saveSession();}
+function getTownItems(q){q=(q||'').trim().toLowerCase();if(q.length<2)return[];const out=[];for(const o of DATA.rows){if(o.name.toLowerCase().startsWith(q))out.push(o);}out.sort((a,b)=>(b.pop||0)-(a.pop||0));return out.slice(0,12).map(o=>({label:o.name,sub:o.state+(o.pop!=null?' · '+o.pop.toLocaleString():''),value:o.id}));}
+function centerOnTown(o,minZoom){const cv=$('#compmap');if(!cv)return;if(!MB)MB=computeMapBounds();const W=cv.width,H=cv.height,pad=6;const s=Math.min((W-2*pad)/(MB.maxx-MB.minx),(H-2*pad)/(MB.maxy-MB.miny));const offx=pad+((W-2*pad)-s*(MB.maxx-MB.minx))/2,offy=pad+((H-2*pad)-s*(MB.maxy-MB.miny))/2;const a=albers(o.lon,o.lat),bxv=offx+(a[0]-MB.minx)*s,byv=offy+(MB.maxy-a[1])*s;mapZoom=Math.max(mapZoom,minZoom||8);mapTX=W/2-bxv*mapZoom;mapTY=H/2-byv*mapZoom;}
+function selectTown(id){const o=DATA.rows.find(r=>r.id===id);if(!o)return;if(curState&&o.state!==curState){curState='';const si=$('#stateFilter');if(si)si.value='';}selectedId=id;centerOnTown(o);renderResults();redrawCompMap();openDetail();saveSession();}
+function showCriterionInfo(c){const d=$('#detail');if(!d)return;const md=(DATA.meta&&DATA.meta[c.scoreCol])||{};d.className='detail';
+  let h=`<div style="margin-bottom:6px"><b style="font-size:16px">${c.label}</b> <span class="muted small">${c.units||''}</span></div>`;
+  if(md.description)h+=`<p style="margin:.2em 0 .6em;font-size:13px">${md.description}</p>`;
+  h+='<table class="dtl"><tbody>';
+  if(md.source)h+=`<tr><td class="small muted" style="vertical-align:top;white-space:nowrap">Source</td><td class="small">${md.source}${md.source_date?' · '+md.source_date:''}</td></tr>`;
+  if(md.normalization_method)h+=`<tr><td class="small muted" style="vertical-align:top">Scoring</td><td class="small">${md.normalization_method}</td></tr>`;
+  h+='</tbody></table>';
+  if(c.raws&&c.raws.length){h+='<div class="small muted" style="margin-top:8px;font-weight:600">Raw inputs</div><table class="dtl"><tbody>';for(const rc of c.raws){h+=`<tr><td class="small"><b>${prettify(rc.col)}</b>${rc.units?' <span class="muted">('+rc.units+')</span>':''}${rc.desc?'<div class="small muted">'+rc.desc+'</div>':''}</td></tr>`;}h+='</tbody></table>';}
+  h+='<div class="small muted" style="margin-top:8px">Hover a criterion to read about it; the map previews that layer.</div>';
+  d.innerHTML=h;}
+
 function buildExplore(){
   const root=$('#explore');root.innerHTML='';const layout=el('div',{class:'cols2',id:'explayout'});const left=el('div');
   const cp=el('div',{class:'card'});cp.append(el('h2',{},'Criteria'));
   cp.append(el('div',{class:'flex',style:'margin-bottom:6px'},
     el('button',{class:'btn sec',onclick:()=>setAllCriteria(true)},'Select all'),
     el('button',{class:'btn sec',onclick:()=>setAllCriteria(false)},'Select none'),
-    el('span',{class:'small muted'},'slider 0–10 = importance · floor gates · hover a row to preview it on the map')));
+    el('span',{class:'small muted'},'slider 0–10 = importance · floor gates · hover a row to preview the layer')));
   critControls=[];
   for(const c of DATA.criteria){
     const row=el('div',{class:'crit-row'+(c.enabled?'':' off')});
@@ -226,20 +287,22 @@ function buildExplore(){
     const sl=el('input',{type:'range',min:'0',max:'10',step:'1',value:String(c.weight)});
     const wv=el('span',{class:'wv'},String(c.weight));
     sl.addEventListener('input',()=>{c.weight=+sl.value;wv.textContent=sl.value;recompute();});
-    const fl=el('input',{type:'number',min:'0',max:'100',placeholder:'—',title:'minimum score to keep a town'});fl.addEventListener('input',()=>{c.floor=fl.value===''?null:+fl.value;recompute();});
+    const fl=el('input',{type:'number',min:'0',max:'100',placeholder:'—',title:'minimum score to keep a town',value:(c.floor!=null?String(c.floor):'')});fl.addEventListener('input',()=>{c.floor=fl.value===''?null:+fl.value;recompute();});
     const top=el('label',{class:'crit-top'},tog,el('span',{class:'cname'},c.label));
     const bot=el('div',{class:'crit-bot'},sl,wv,el('span',{class:'floorlbl'},'floor ≥'),fl);
     row.append(top,bot);
-    row.addEventListener('mouseenter',()=>previewLayer(c));
-    row.addEventListener('mouseleave',()=>redrawCompMap());
+    row.addEventListener('mouseenter',()=>{previewLayer(c);showCriterionInfo(c);});
+    row.addEventListener('mouseleave',()=>{const hv=$('#maphover');if(hv)hv.style.display='none';redrawCompMap();renderDetail();});
     critControls.push({c,tog,sl,fl,wv});
     cp.append(row);
   }
   left.append(cp);
   const opt=el('div',{class:'card'});opt.append(el('h3',{},'Display & export'));
   const pf=el('input',{type:'number',min:'0',placeholder:'0',style:'width:90px'});pf.addEventListener('input',recompute);
+  if(DATA._sess&&DATA._sess.pop) pf.value=DATA._sess.pop;
   opt.append(el('div',{class:'flex',style:'margin-bottom:8px'},el('span',{class:'small'},'Min population:'),pf,el('span',{class:'small muted'},'(thins tiny CDPs)')));
-  const topN=el('input',{type:'number',min:'1',value:'100',id:'topN',style:'width:80px'});
+  const topN=el('input',{type:'number',min:'1',value:String((DATA._sess&&DATA._sess.topN)||100),id:'topN',style:'width:80px'});
+  topN.addEventListener('input',()=>{renderResults();saveSession();});
   opt.append(el('div',{class:'flex',style:'margin-bottom:8px'},el('span',{class:'small'},'Show / export top:'),topN,el('button',{class:'btn sec',onclick:exportCSV},'Export shortlist CSV')));
   opt.append(el('h3',{style:'margin-top:10px'},'Weight profiles'));
   const pname=el('input',{type:'text',placeholder:'profile name',style:'width:130px;padding:3px 5px;border:1px solid #cfd4da;border-radius:4px'});
@@ -248,21 +311,22 @@ function buildExplore(){
   left.append(opt);layout.append(left);
   const center=el('div');
   const counts={};DATA.rows.forEach(o=>counts[o.state]=(counts[o.state]||0)+1);
+  DATA._counts=counts;
   DATA._states=Object.keys(counts).sort((a,b)=>(STATE_NAMES[a]||a).localeCompare(STATE_NAMES[b]||b));
-  const dl=el('datalist',{id:'statelist'});
-  DATA._states.forEach(s=>dl.append(el('option',{value:(STATE_NAMES[s]||s)},s+' · '+counts[s]+' towns')));
-  const stateInp=el('input',{id:'stateFilter',list:'statelist',placeholder:'Filter by state…',style:'width:170px;padding:4px 7px;border:1px solid #cfd4da;border-radius:4px'});
-  stateInp.addEventListener('change',applyStateFilter);
-  stateInp.addEventListener('keyup',e=>{if(e.key==='Enter'||stateInp.value.trim()==='')applyStateFilter();});
-  const clrBtn=el('button',{class:'btn sec',style:'padding:4px 10px',onclick:()=>{stateInp.value='';applyStateFilter();}},'Clear');
-  const bmToggle=el('label',{class:'small muted',style:'cursor:pointer;white-space:nowrap'},(()=>{const b=el('input',{type:'checkbox'});b.checked=showBasemap;b.style.verticalAlign='-2px';b.addEventListener('change',()=>{showBasemap=b.checked;redrawCompMap();});return b;})(),' basemap');
-  const ctrlPanel=el('div',{class:'card',style:'padding:6px 10px;margin-bottom:10px'},dl,
-    el('div',{class:'flex',style:'justify-content:space-between;flex-wrap:nowrap;gap:12px;white-space:nowrap'},
-      el('div',{class:'flex',style:'gap:6px;min-width:0'},el('span',{class:'small muted'},'State:'),stateInp,clrBtn),
-      el('div',{class:'flex',style:'gap:12px'},bmToggle,el('button',{class:'btn sec',style:'padding:4px 10px',onclick:resetZoom},'Reset view'),el('span',{class:'small muted'},'scroll = zoom · drag = pan'))));
+  const townInp=el('input',{id:'townSearch',placeholder:'Search town…',style:'width:160px;padding:4px 7px;border:1px solid #cfd4da;border-radius:4px'});
+  const townWrap=makeCombo(townInp,getTownItems,it=>{townInp.value='';selectTown(it.value);});
+  const stateInp=el('input',{id:'stateFilter',placeholder:'Filter by state…',style:'width:150px;padding:4px 7px;border:1px solid #cfd4da;border-radius:4px'});
+  if(curState) stateInp.value=(STATE_NAMES[curState]||curState);
+  const stateWrap=makeCombo(stateInp,getStateItems,pickState);
+  const clrBtn=el('button',{class:'btn sec',style:'padding:4px 10px',onclick:()=>{stateInp.value='';curState='';fitState();renderResults();redrawCompMap();saveSession();}},'Clear');
+  const bmToggle=el('label',{class:'small muted',style:'cursor:pointer;white-space:nowrap'},(()=>{const b=el('input',{type:'checkbox'});b.checked=showBasemap;b.style.verticalAlign='-2px';b.addEventListener('change',()=>{showBasemap=b.checked;redrawCompMap();saveSession();});return b;})(),' basemap');
+  const ctrlPanel=el('div',{class:'card',style:'padding:6px 10px;margin-bottom:10px'},
+    el('div',{class:'flex',style:'justify-content:space-between;flex-wrap:nowrap;gap:14px'},
+      el('div',{class:'flex',style:'gap:6px'},el('span',{class:'small muted'},'Town:'),townWrap,el('span',{class:'small muted',style:'margin-left:4px'},'State:'),stateWrap,clrBtn),
+      el('div',{class:'flex',style:'gap:12px'},bmToggle,el('button',{class:'btn sec',style:'padding:4px 10px',onclick:resetZoom},'Reset view'))));
   center.append(ctrlPanel);
   const mapCard=el('div',{class:'card'});
-  mapCard.append(el('div',{id:'maptitle',class:'small muted',style:'text-align:center;min-height:14px'},''),legend());
+  mapCard.append(el('div',{style:'position:relative'},legend(),el('span',{class:'small muted',style:'position:absolute;right:2px;top:0'},'scroll = zoom · drag = pan')));
   const cv=el('canvas',{width:960,height:560,id:'compmap'});cv.style.width='100%';cv.style.cursor='grab';
   cv.addEventListener('mousedown',ev=>{mapDrag={x:ev.clientX,y:ev.clientY};mapMoved=false;cv.style.cursor='grabbing';});
   cv.addEventListener('click',ev=>{if(mapMoved){mapMoved=false;return;}const r=cv.getBoundingClientRect(),mx=(ev.clientX-r.left)*cv.width/r.width,my=(ev.clientY-r.top)*cv.height/r.height,o=hitTest(cv,mx,my,popFloor());if(o){selectedId=o.id;renderResults();redrawCompMap();openDetail();}});
@@ -284,15 +348,15 @@ function buildExplore(){
 function popFloor(){const i=$('#explore')&&$('#explore').querySelector('input[placeholder="0"]');return i&&i.value?+i.value:0;}
 function getTopN(){const i=$('#topN');return i&&+i.value>0?+i.value:100;}
 function setAllCriteria(v){for(const ctl of critControls){ctl.c.enabled=v;ctl.tog.checked=v;const row=ctl.tog.closest('.crit-row');if(row)row.classList.toggle('off',!v);}recompute();}
-function previewLayer(c){const cv=$('#compmap');if(!cv)return;const pf=popFloor();const mt=$('#maptitle');if(mt)mt.textContent='Layer preview: '+c.label;drawMap(cv,o=>{if(pf&&(o.pop||0)<pf)return false;const v=o.s[c.scoreCol];return v==null?null:v/100;},{r:1.3,popFloor:pf,z:mapZoom,tx:mapTX,ty:mapTY,basemap:true,state:curState});}
+function previewLayer(c){const cv=$('#compmap');if(!cv)return;const pf=popFloor();const hv=$('#maphover');if(hv){hv.textContent='Layer preview: '+c.label;hv.style.display='block';}drawMap(cv,o=>{if(pf&&(o.pop||0)<pf)return false;const v=o.s[c.scoreCol];return v==null?null:v/100;},{r:1.3,popFloor:pf,z:mapZoom,tx:mapTX,ty:mapTY,basemap:true,state:curState});}
 function currentList(){if(!lastOrder)return[];return curState?lastOrder.filter(x=>x[0].state===curState):lastOrder;}
 function compositeFor(o){let num=0,den=0;for(const c of DATA.criteria){if(!c.enabled||c.weight<=0)continue;const v=o.s[c.scoreCol];if(v==null||Number.isNaN(v))continue;num+=c.weight*v;den+=c.weight;}return den>0?num/den:null;}
 function passesFloors(o){for(const c of DATA.criteria){if(!c.enabled||c.floor==null)continue;const v=o.s[c.scoreCol];if(v==null||v<c.floor)return false;}return true;}
-function recompute(){if(!DATA)return;const pf=popFloor();const arr=[];lastComposite={};for(const o of DATA.rows){const comp=compositeFor(o);lastComposite[o.id]=comp;if(comp!=null&&passesFloors(o)&&(!pf||(o.pop||0)>=pf))arr.push([o,comp]);}arr.sort((a,b)=>b[1]-a[1]);lastOrder=arr;renderResults();redrawCompMap();if(selectedId)renderDetail();}
-function redrawCompMap(){const cv=$('#compmap');if(!cv)return;const mt=$('#maptitle');if(mt)mt.textContent='';const pf=popFloor();drawMap(cv,o=>{if(pf&&(o.pop||0)<pf)return false;if(!passesFloors(o))return false;const c=lastComposite?lastComposite[o.id]:compositeFor(o);return c==null?null:c/100;},{r:1.3,popFloor:pf,z:mapZoom,tx:mapTX,ty:mapTY,basemap:true,state:curState});}
+function recompute(){if(!DATA)return;const pf=popFloor();const arr=[];lastComposite={};for(const o of DATA.rows){const comp=compositeFor(o);lastComposite[o.id]=comp;if(comp!=null&&passesFloors(o)&&(!pf||(o.pop||0)>=pf))arr.push([o,comp]);}arr.sort((a,b)=>b[1]-a[1]);lastOrder=arr;renderResults();redrawCompMap();if(selectedId)renderDetail();saveSession();}
+function redrawCompMap(){const cv=$('#compmap');if(!cv)return;const pf=popFloor();drawMap(cv,o=>{if(pf&&(o.pop||0)<pf)return false;if(!passesFloors(o))return false;const c=lastComposite?lastComposite[o.id]:compositeFor(o);return c==null?null:c/100;},{r:1.3,popFloor:pf,z:mapZoom,tx:mapTX,ty:mapTY,basemap:true,state:curState});}
 function resetZoom(){mapZoom=1;mapTX=0;mapTY=0;redrawCompMap();}
 function sizeCompMap(){const cv=$('#compmap');if(!cv||cv.offsetParent===null)return;if(!MB)MB=computeMapBounds();const cssW=cv.clientWidth||(cv.parentElement&&cv.parentElement.clientWidth)||900;const aspect=(MB.maxx-MB.minx)/(MB.maxy-MB.miny)||1.6;const cssH=Math.max(220,cssW/aspect);const dpr=Math.min(2,window.devicePixelRatio||1);cv.style.height=cssH+'px';cv.width=Math.round(cssW*dpr);cv.height=Math.round(cssH*dpr);redrawCompMap();}
-function applyStateFilter(){const inp=$('#stateFilter');if(!inp)return;const t=inp.value.trim().toLowerCase();let code='';if(t){const S=(DATA._states||[]);for(const s of S){const nm=(STATE_NAMES[s]||s).toLowerCase();if(s.toLowerCase()===t||nm===t){code=s;break;}}if(!code)for(const s of S){const nm=(STATE_NAMES[s]||s).toLowerCase();if(nm.startsWith(t)||s.toLowerCase().startsWith(t)){code=s;break;}}}curState=code;selectedId=null;fitState();renderResults();redrawCompMap();}
+function applyStateFilter(){const inp=$('#stateFilter');if(!inp)return;const t=inp.value.trim().toLowerCase();let code='';if(t){const S=(DATA._states||[]);for(const s of S){const nm=(STATE_NAMES[s]||s).toLowerCase();if(s.toLowerCase()===t||nm===t){code=s;break;}}if(!code)for(const s of S){const nm=(STATE_NAMES[s]||s).toLowerCase();if(nm.startsWith(t)||s.toLowerCase().startsWith(t)){code=s;break;}}}curState=code;selectedId=null;fitState();renderResults();redrawCompMap();saveSession();}
 function fitState(){const cv=$('#compmap');if(!cv){mapZoom=1;mapTX=0;mapTY=0;return;}
   if(!curState){mapZoom=1;mapTX=0;mapTY=0;return;}
   let minx=1e9,maxx=-1e9,miny=1e9,maxy=-1e9,any=false;
@@ -336,6 +400,9 @@ function exportCSV(){if(!lastOrder)return;const N=getTopN(),top=currentList().sl
   lines.push('');lines.push('# weight_profile,'+csvq(profile));
   const blob=new Blob([lines.join('\n')],{type:'text/csv'}),a=el('a',{href:URL.createObjectURL(blob),download:'shortlist_top'+top.length+'.csv'});document.body.append(a);a.click();a.remove();}
 const csvq=s=>{s=String(s==null?'':s);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
+const SKEY='reloc_session_v1';
+function saveSession(){try{if(!DATA)return;const s={crit:{},pop:popFloor(),topN:getTopN(),state:curState,basemap:showBasemap};DATA.criteria.forEach(c=>s.crit[c.key]={enabled:c.enabled,weight:c.weight,floor:c.floor});localStorage.setItem(SKEY,JSON.stringify(s));}catch(e){}}
+function loadSession(){try{return JSON.parse(localStorage.getItem(SKEY)||'null');}catch(e){return null;}}
 const PKEY='reloc_weight_profiles_v1';
 function getProfiles(){try{return JSON.parse(localStorage.getItem(PKEY)||'{}');}catch(e){return{};}}
 function setProfiles(p){try{localStorage.setItem(PKEY,JSON.stringify(p));}catch(e){}}

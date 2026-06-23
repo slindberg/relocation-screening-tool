@@ -72,8 +72,8 @@ def poly_rings(geom,tol):
             for gg in g.geoms: add(gg)
     add(geom); return out
 
-# ---- GSHHS intermediate: land polys, coastline, lakes ----
-land_polys=[]; lake_polys=[]; coast=[]
+# ---- GSHHS intermediate: land polys (for relief mask) + lakes; coastline built later ----
+land_polys=[]; lake_polys=[]; l1_orig=[]
 for level,area,arr in read_segments('gshhs','i'):
     if len(arr)<4: continue
     try: pg=Polygon(arr)
@@ -81,16 +81,14 @@ for level,area,arr in read_segments('gshhs','i'):
     if not pg.is_valid: pg=pg.buffer(0)
     if not pg.intersects(BBOX): continue
     if level=='1':
+        l1_orig.append(pg)
         land_polys.append(pg.intersection(BBOX))
-        coast+=clip_geom(pg.boundary,BBOX,0.0035,0.05)
     elif level=='2':
         try:
             if float(area)<120: continue
         except: pass
         lake_polys.append(pg.intersection(BBOX))
-GLAND=unary_union([p for p in land_polys if not p.is_empty]).buffer(0)
-GLAND_IN=GLAND.simplify(0.01).buffer(-0.03)
-print("coast lines",len(coast),"pts",sum(len(s) for s in coast),"| land polys",len(land_polys),"| cand lakes",len(lake_polys))
+print("land polys",len(land_polys),"| cand lakes",len(lake_polys))
 
 # ---- STATE BORDERS (TIGER) dissolved, clipped to land (drops coast/bay-crossing) ----
 EXCL={'02','15','60','66','69','72','78'}
@@ -107,18 +105,51 @@ for srec in sf.iterShapeRecords():
 state_unions=[unary_union(gs) for gs in bystate.values()]
 US_LAND=unary_union(state_unions).buffer(0)
 US_RC=US_LAND.simplify(0.02)
+US_CLIP=US_LAND.buffer(0.05)        # clip all map layers to the lower-48 (+ small margin)
+US_IN=US_RC.buffer(-0.03)           # interior, to drop coastal/national edges from state borders
+borders_line=unary_union([u.simplify(0.02).boundary for u in state_unions])
+
+# state borders: interstate lines only, kept inside the US
 states=[]
 for u in state_unions:
-    states+=clip_geom(u.boundary,GLAND_IN,0.006,0.04)
+    states+=clip_geom(u.boundary,US_IN,0.006,0.04)
 print("state border lines",len(states),"pts",sum(len(s) for s in states))
 
-# ---- border-adjacent lakes (Great Lakes etc.), intermediate detail ----
-borders=unary_union([u.simplify(0.02).boundary for u in state_unions])
-lakes=[]
+# split lakes: border-adjacent (Great Lakes etc.) render as water; interior lakes stay land
+border_lakes=[]; interior_lakes=[]
 for pg in lake_polys:
-    if pg.distance(borders)<0.03:
-        lakes+=poly_rings(pg,0.01)
-print("border-adjacent lakes",len(lakes))
+    (border_lakes if pg.distance(borders_line)<0.03 else interior_lakes).append(pg)
+
+# coastline: US ocean coast + bays (level-1 boundary) + border-lake shores, clipped to the US
+coast=[]
+for pg in l1_orig:
+    coast+=clip_geom(pg.boundary,US_CLIP,0.0035,0.05)
+for pg in border_lakes:
+    coast+=clip_geom(pg.boundary,US_CLIP,0.01,0.05)
+print("coast lines",len(coast),"pts",sum(len(s) for s in coast))
+
+# national land borders (US–Canada / US–Mexico): the US outline adjacent to real foreign LAND.
+# Buffer the US outward first so the TIGER/GSHHS coastline mismatch (thin slivers along the
+# coast) and offshore water detail (Puget Sound islands, Florida keys, …) are excluded — only
+# the true inland borders remain. Densify so straight-in-lon/lat spans (49th parallel) render
+# as proper Albers curves; simplify first to drop the Rio Grande's heavy meander.
+GLAND=unary_union([p for p in land_polys if not p.is_empty]).buffer(0)
+FOREIGN=GLAND.difference(US_LAND.buffer(0.1))
+def densify(coords,step=0.3):
+    out=[coords[0]]
+    for a,b in zip(coords,coords[1:]):
+        n=max(1,int(math.hypot(b[0]-a[0],b[1]-a[1])/step))
+        for k in range(1,n+1): out.append((a[0]+(b[0]-a[0])*k/n,a[1]+(b[1]-a[1])*k/n))
+    return out
+natl=[]
+def collect_natl(g):
+    if g.is_empty: return
+    if g.geom_type=='LineString':
+        if g.length>0.08: natl.append([[round(x,3),round(y,3)] for x,y in densify(list(g.simplify(0.01).coords))])
+    elif g.geom_type in ('MultiLineString','GeometryCollection'):
+        for gg in g.geoms: collect_natl(gg)
+collect_natl(US_LAND.boundary.intersection(FOREIGN.buffer(0.12)))
+print("national border lines",len(natl),"pts",sum(len(s) for s in natl))
 
 # ---- rivers (low res, major) cropped to US land ----
 rivers=[]
@@ -137,21 +168,27 @@ for srec in rsf.iterShapeRecords():
     for k in range(len(parts)-1):
         seg=pts[parts[k]:parts[k+1]]
         if len(seg)<2: continue
-        roads+=clip_geom(LineString(seg),BBOX,0.008,0.03)
+        roads+=clip_geom(LineString(seg),US_CLIP,0.008,0.03)
 print("interstate lines",len(roads),"pts",sum(len(s) for s in roads))
 
-# ---- RELIEF raster (Albers MB grid): land=light relief, water=faint blue ----
+# ---- RELIEF raster: land = shaded relief; everything outside the lower-48 = transparent ----
 RW=1400; RH=int(round(RW/aspect))
-mask=Image.new('L',(RW,RH),0); md=ImageDraw.Draw(mask)
 def to_px(lon,lat):
     x,y=albers(lon,lat); return ((x-minx)/spanx*RW,(maxy-y)/spany*RH)
-def fill_geom(g):
-    if g.geom_type=='Polygon':
-        md.polygon([to_px(x,y) for x,y in g.exterior.coords],fill=255)
-    elif g.geom_type in ('MultiPolygon','GeometryCollection'):
-        for gg in g.geoms: fill_geom(gg)
-for p in land_polys: fill_geom(p)
-maskA=np.array(mask)
+def rasterize(geoms):
+    im=Image.new('L',(RW,RH),0); d=ImageDraw.Draw(im)
+    def fill(g):
+        if g.geom_type=='Polygon': d.polygon([to_px(x,y) for x,y in g.exterior.coords],fill=255)
+        elif g.geom_type in ('MultiPolygon','GeometryCollection'):
+            for gg in g.geoms: fill(gg)
+    for g in geoms:
+        if not g.is_empty: fill(g)
+    return np.array(im)>0
+gmask=rasterize(land_polys)        # GSHHS land (continent; does NOT cut out the Great Lakes)
+usmask=rasterize([US_LAND])        # lower-48 land (TIGER; includes bays + lakes)
+imask=rasterize(interior_lakes)    # small interior lakes -> keep as land
+blmask=rasterize(border_lakes)     # Great Lakes etc. -> force to water
+landmask=usmask & (gmask | imask) & (~blmask)   # US land, minus ocean/bays/Great-Lakes, plus interior lakes
 src=Image.open(os.path.join(BD,"shadedrelief.jpg")).convert('RGB').resize((5400,2700))
 S=np.asarray(src); SH,SW,_=S.shape
 js,is_=np.meshgrid(np.arange(RW),np.arange(RH))
@@ -164,15 +201,16 @@ rowi=np.clip(((90-lat)/180*SH).astype(int),0,SH-1)
 samp=S[rowi,col]
 gray=(0.299*samp[...,0]+0.587*samp[...,1]+0.114*samp[...,2])[...,None]
 land_rgb=np.clip(255-(255-(samp*0.5+gray*0.5))*0.32,0,255)
-water=np.array([214,228,241],dtype=float)
-m=(maskA>0)[...,None]
-rgb=np.where(m,land_rgb,water).astype(np.uint8)
-alpha=np.full((RH,RW),255,dtype=np.uint8)
+# Fully OPAQUE image (no alpha channel — avoids Safari's transparent-PNG canvas issues):
+# land = shaded relief, everything else = the EXACT water color the app paints as its
+# background, so the relief rectangle's edge is invisible and panning never shows a seam.
+WATER=np.array([221,232,243],dtype=np.uint8)   # must equal the app's water fill (#dde8f3)
+rgb=np.where(landmask[...,None],land_rgb.astype(np.uint8),WATER).astype(np.uint8)
 ASSETS=PROJ+"assets/"; os.makedirs(ASSETS,exist_ok=True)
-Image.fromarray(np.dstack([rgb,alpha]),'RGBA').save(ASSETS+"relief.png")
+Image.fromarray(rgb,'RGB').save(ASSETS+"relief.png")
 print("relief",RW,"x",RH,"->",round(os.path.getsize(ASSETS+'relief.png')/1024),"KB")
 
-bm={"mb":[minx,maxx,miny,maxy],"states":states,"rivers":rivers,"lakes":lakes,"roads":roads,"coast":coast}
+bm={"mb":[minx,maxx,miny,maxy],"states":states,"natl":natl,"rivers":rivers,"roads":roads,"coast":coast}
 js_json=json.dumps(bm,separators=(',',':'))
 open(ASSETS+"basemap.json","w").write(js_json)
 print("assets/basemap.json KB",round(os.path.getsize(ASSETS+'basemap.json')/1024),"| assets/relief.png KB",round(os.path.getsize(ASSETS+'relief.png')/1024))
