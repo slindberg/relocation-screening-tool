@@ -177,14 +177,17 @@ function drawMap(canvas,valueFn,opts={}){if(!MB)MB=computeMapBounds();const ctx=
     ctx.beginPath();ctx.arc(sel.x,sel.y,dr,0,6.2832);ctx.fillStyle=color(sel.v);ctx.fill();ctx.lineWidth=1.5;ctx.strokeStyle='#111';ctx.beginPath();ctx.arc(sel.x,sel.y,dr,0,6.2832);ctx.stroke();}}
 function drawBasemap(ctx,px,py,z,tx,ty,s){
   const dpr=Math.min(2,window.devicePixelRatio||1);
-  if(reliefImg&&reliefImg.complete&&reliefImg.naturalWidth){const dx=px(MB.minx)*z+tx,dy=py(MB.maxy)*z+ty,dw=(MB.maxx-MB.minx)*s*z,dh=(MB.maxy-MB.miny)*s*z;ctx.save();ctx.globalAlpha=0.55;ctx.drawImage(reliefImg,dx,dy,dw,dh);ctx.restore();}
+  // water as a full-canvas background (no rectangular relief edge when panning)
+  ctx.save();ctx.fillStyle='#dde8f3';ctx.fillRect(0,0,ctx.canvas.width,ctx.canvas.height);ctx.restore();
+  if(reliefImg&&reliefImg.complete&&reliefImg.naturalWidth){const dx=px(MB.minx)*z+tx,dy=py(MB.maxy)*z+ty,dw=(MB.maxx-MB.minx)*s*z,dh=(MB.maxy-MB.miny)*s*z;ctx.drawImage(reliefImg,dx,dy,dw,dh);}
   const T=(lon,lat)=>{const a=albers(lon,lat);return [px(a[0])*z+tx,py(a[1])*z+ty];};
   const trace=ring=>{ctx.beginPath();for(let i=0;i<ring.length;i++){const p=T(ring[i][0],ring[i][1]);if(i===0)ctx.moveTo(p[0],p[1]);else ctx.lineTo(p[0],p[1]);}};
-  if(BM.coast){ctx.strokeStyle='rgba(108,150,182,0.6)';ctx.lineWidth=Math.max(0.5,0.6*Math.min(2.5,Math.sqrt(z)))*dpr;for(const ln of BM.coast){trace(ln);ctx.stroke();}}
-  ctx.fillStyle='#dceaf6';for(const ring of BM.lakes){trace(ring);ctx.closePath();ctx.fill();}
+  if(BM.coast){ctx.strokeStyle='rgba(132,158,182,0.4)';ctx.lineWidth=Math.max(0.4,0.5*Math.min(2.2,Math.sqrt(z)))*dpr;for(const ln of BM.coast){trace(ln);ctx.stroke();}}
+  if(BM.lakes){ctx.fillStyle='#dceaf6';for(const ring of BM.lakes){trace(ring);ctx.closePath();ctx.fill();}}
   ctx.strokeStyle='rgba(130,175,210,0.5)';ctx.lineWidth=Math.max(0.5,0.6*Math.min(2,Math.sqrt(z)))*dpr;for(const ln of BM.rivers){trace(ln);ctx.stroke();}
   if(BM.roads){ctx.strokeStyle='rgba(210,160,110,0.35)';ctx.lineWidth=Math.max(0.45,0.55*Math.min(2,Math.sqrt(z)))*dpr;for(const ln of BM.roads){trace(ln);ctx.stroke();}}
   ctx.strokeStyle='rgba(120,128,140,0.16)';ctx.lineWidth=0.55*dpr;for(const ring of BM.states){trace(ring);ctx.stroke();}
+  if(BM.natl){ctx.strokeStyle='rgba(120,140,162,0.5)';ctx.lineWidth=Math.max(0.4,0.5*Math.min(2.2,Math.sqrt(z)))*dpr;for(const ln of BM.natl){trace(ln);ctx.stroke();}}
 }
 function hitTest(canvas,mx,my,pf=0){let best=null,bd=120;const v=canvas._view||{z:1,tx:0,ty:0},rows=DATA.rows;for(let i=0;i<rows.length;i++){const o=rows[i];if(curState&&o.state!==curState)continue;if(o.lat<24||o.lat>50||o.lon<-125||o.lon>-66)continue;if(pf&&(o.pop||0)<pf)continue;const[X,Y]=albers(o.lon,o.lat),cx=canvas._px(X)*v.z+v.tx,cy=canvas._py(Y)*v.z+v.ty,d=(cx-mx)**2+(cy-my)**2;if(d<bd){bd=d;best=o;}}return best;}
 function drawHist(canvas,col){const ctx=canvas.getContext('2d'),W=canvas.width,H=canvas.height;ctx.clearRect(0,0,W,H);const bins=new Array(20).fill(0);for(const o of DATA.rows){const v=o.s[col];if(v==null||Number.isNaN(v))continue;let b=Math.floor(v/5);if(b>19)b=19;if(b<0)b=0;bins[b]++;}const mx=Math.max(...bins),bw=W/20;for(let i=0;i<20;i++){const h=mx?bins[i]/mx*(H-2):0;ctx.fillStyle=color(i/19);ctx.fillRect(i*bw+1,H-h,bw-2,h);}}
