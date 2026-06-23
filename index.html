@@ -149,7 +149,7 @@ async function boot(){
   // basemap + relief assets
   try{const bm=await fetch(ASSET_DIR+'basemap.json',{cache:'no-cache'}); if(bm.ok){BM=await bm.json(); if(BM&&BM.mb)MB={minx:BM.mb[0],maxx:BM.mb[1],miny:BM.mb[2],maxy:BM.mb[3]};}}catch(e){BM=null;}
   reliefImg=new Image(); reliefImg.onload=()=>{if(MODE==='explore')redrawCompMap();}; reliefImg.onerror=()=>{reliefImg=null;}; reliefImg.src=ASSET_DIR+'relief.png';
-  $('#subhead').innerHTML=`${rows.length.toLocaleString()} towns · ${scoreCols.length} scored criteria · data from <code>${DATA_DIR}</code>`;
+  $('#subhead').innerHTML=`${rows.length.toLocaleString()} towns · ${scoreCols.length} scored criteria`;
   $('#tabs').style.display='flex';
   $('#tabs').querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>setMode(t.dataset.mode)));
   buildQuality(); buildExplore(); setMode('explore');
