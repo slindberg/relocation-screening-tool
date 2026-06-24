@@ -269,6 +269,46 @@ def fetch_airports() -> Path:
     return _download(C.AIRPORTS_URL, dest)
 
 
+# Geometry-bearing formats are preferred over the results-only CSV (listed last).
+_POLITICS_EXTS = (".gpkg", ".shp", ".geojson", ".json", ".topojson",
+                  ".topojson.gz", ".geojson.gz", ".json.gz", ".csv.gz", ".csv")
+
+
+def fetch_politics_precincts() -> Path:
+    """Return a local precinct-results file for the politics criterion. Resolution order:
+       1. POLITICS_PRECINCT_FILE env override, 2. any precinct file already in
+       data/raw/politics/, 3. download POLITICS_PRECINCT_URL (the NYT national 2024
+       file, ~1 GB) once. politics.attach_politics reads geo files via geopandas or a
+       CSV with a WKT geometry column."""
+    override = os.environ.get("POLITICS_PRECINCT_FILE", "")
+    if override and Path(override).exists():
+        return Path(override)
+    out_dir = C.POLITICS_DIR
+    if out_dir.exists():
+        found = [p for ext in _POLITICS_EXTS for p in out_dir.glob(f"*{ext}")]
+        if found:
+            return found[0]
+    if C.POLITICS_PRECINCT_URL:
+        url = C.POLITICS_PRECINCT_URL
+        # keep the URL's own extension (.csv.gz / .topojson.gz / …) for the cache file
+        suffix = "".join(Path(url.split("?")[0]).suffixes) or ".csv.gz"
+        dest = out_dir / f"precincts_2024{suffix}"
+        try:
+            return _download(url, dest)
+        except Exception as exc:
+            print(f"[politics] precinct download failed ({exc}); falling back to manual.")
+    raise RuntimeError(
+        "2024 precinct results file not found. Provide it once:\n"
+        "  • Download the NYT national 2024 presidential precinct file with geometry — "
+        "'precincts-with-results.topojson.gz' (NOT the .csv.gz, which is results-only / "
+        "has no geometry) — from "
+        "https://github.com/nytimes/presidential-precinct-map-2024#download-national-data\n"
+        "  • Drop it in data/raw/politics/ (or set POLITICS_PRECINCT_FILE / "
+        "POLITICS_PRECINCT_URL). Accepted: .topojson[.gz]/.geojson[.gz]/.gpkg/.shp, or a "
+        ".csv[.gz] that actually contains a WKT geometry column."
+    )
+
+
 def dem_tile_basename(lat0: int, lon0: int) -> str:
     """Copernicus GLO-90 object/tile basename for the 1°×1° tile whose lower-left
     corner is (lat0, lon0) — e.g. (47, -123) -> Copernicus_DSM_COG_30_N47_00_W123_00_DEM."""

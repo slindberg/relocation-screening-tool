@@ -189,6 +189,31 @@ PM25_NEIGHBORHOOD_PTS = 3      # … 3x3 points within ±5 km, mean of the valid
 
 
 # --------------------------------------------------------------------------- #
+# Politics — 2024 presidential vote, precinct level (NYT national file)
+# --------------------------------------------------------------------------- #
+# Precinct-level (not county) so a left-leaning town inside a right-leaning county is
+# captured. The New York Times publishes a single national file of 2024 presidential
+# precinct results joined to precinct boundaries:
+# https://github.com/nytimes/presidential-precinct-map-2024 . Use the **TopoJSON**
+# (precincts-with-results.topojson.gz) — it carries both geometry and the votes_dem/
+# votes_rep columns. The sibling .csv.gz is results-only (no geometry) and won't work.
+# Each town centroid is spatially joined to its precinct; the raw metric is the
+# Democratic share of the two-party vote. Large file (~1 GB) — auto-downloaded once to
+# data/raw/politics/ from POLITICS_PRECINCT_URL, or drop the file there yourself /
+# point POLITICS_PRECINCT_FILE at it (.topojson[.gz]/.geojson[.gz]/.gpkg/.shp, or a
+# .csv[.gz] that contains a WKT geometry column).
+POLITICS_PRECINCT_URL = os.environ.get(
+    "POLITICS_PRECINCT_URL",
+    "https://int.nyt.com/newsgraphics/elections/map-data/2024/national/"
+    "precincts-with-results.topojson.gz")
+POLITICS_DIR = DATA_RAW / "politics"
+# Case-insensitive candidate column names for the Dem / Rep vote totals in the precinct
+# file (first match wins). Override/extend if you supply a differently-keyed file.
+POLITICS_DEM_COLS = ("votes_dem", "dem_votes", "dem", "democrat", "g24predhar", "pre_dem")
+POLITICS_REP_COLS = ("votes_rep", "rep_votes", "rep", "republican", "g24prertru", "pre_rep")
+
+
+# --------------------------------------------------------------------------- #
 # Isolation / regional remoteness (Phase 2) — computed from the places table
 # --------------------------------------------------------------------------- #
 CITY_POP_THRESHOLD = 50000     # a "sizable city" for the distance-to-city metric
@@ -496,6 +521,28 @@ CRITERIA = [
             "people around. Population-within-radius captures true remoteness (a "
             "low-density suburb inside a metro is correctly not isolated); place "
             "density is kept only as a context raw. Paired with nature access."
+        ),
+    },
+    {
+        "name": "politics",
+        "score_col": "score_politics",
+        "raw_cols": [
+            ("raw_dem_two_party_pct",
+             "Democratic share of the two-party 2024 presidential vote in the town's precinct (%)"),
+        ],
+        "units": "percentile (0-100)",
+        "source": "NYT 2024 presidential precinct results (national), spatial-joined to town centroid",
+        "source_date": "2024 general election",
+        "score_method": "percentile",
+        "higher_is_better": True,   # more Democratic-voting scores higher
+        "raw_for_score": "raw_dem_two_party_pct",
+        "description": (
+            "Local political lean: Democratic share of the two-party presidential "
+            "vote — Dem / (Dem + Rep) — in the precinct containing the town centroid "
+            "(2024 general election), percentile-ranked so more Democratic-voting "
+            "towns score higher. Precinct-level rather than county, so a left-leaning "
+            "town inside a right-leaning county is captured. Measures how the area "
+            "votes, not residents' ideology directly."
         ),
     },
 ]

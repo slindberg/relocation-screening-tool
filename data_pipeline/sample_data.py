@@ -24,7 +24,7 @@ RAW_COLS = [
     "raw_dist_to_protected_km", "raw_natural_cover_pct",
     "raw_dist_to_airport_mi", "raw_nearest_airport_iata", "raw_dist_to_costco_mi",
     "raw_pop_within_50km", "raw_dist_to_city_km", "raw_place_density_per_sqmi",
-    "raw_annual_ghi",
+    "raw_annual_ghi", "raw_dem_two_party_pct",
 ]
 
 
@@ -72,6 +72,8 @@ def _random_towns(n: int, rng: np.random.Generator) -> pd.DataFrame:
         "raw_dist_to_city_km": np.clip(rng.exponential(60, n), 0, 400),
         "raw_place_density_per_sqmi": np.clip(rng.exponential(1500, n), 5, 20000),
         "raw_annual_ghi": np.clip(rng.normal(4.5, 0.55, n), 2.8, 6.5),
+        # Dem two-party %: bimodal-ish, spread across the spectrum.
+        "raw_dem_two_party_pct": np.clip(rng.normal(48, 18, n), 3, 95),
     })
 
 
@@ -101,7 +103,8 @@ def make_sample() -> pd.DataFrame:
                 raw_pressure_diurnal_hpa=4.2, raw_pressure_synoptic_hpa=9.8,
                 raw_tick_established="Y",
                 raw_lyme_incidence_per_100k=3.0, raw_lyme_cases_2023=8,
-                raw_annual_pm25_ugm3=5.5, raw_annual_ghi=3.3),
+                raw_annual_pm25_ugm3=5.5, raw_annual_ghi=3.3,
+                raw_dem_two_party_pct=65.0),
         # San Luis Obispo, CA — mild marine, tiny diurnal swing, near coast.
         _anchor("San Luis Obispo", "CA", "San Luis Obispo", "06079", 35.28, -120.66,
                 raw_comfortable_day_fraction=0.90, raw_days_above_85=4, raw_days_below_50=14,
@@ -110,7 +113,8 @@ def make_sample() -> pd.DataFrame:
                 raw_pressure_diurnal_hpa=2.0, raw_pressure_synoptic_hpa=3.8,
                 raw_tick_established="Y",
                 raw_lyme_incidence_per_100k=4.0, raw_lyme_cases_2023=10,
-                raw_annual_pm25_ugm3=7.0, raw_annual_ghi=5.3),
+                raw_annual_pm25_ugm3=7.0, raw_annual_ghi=5.3,
+                raw_dem_two_party_pct=60.0),
         # Santa Fe, NM — sunny, dry, high-desert big diurnal swing, no established ticks.
         _anchor("Santa Fe", "NM", "Santa Fe", "35049", 35.69, -105.94,
                 raw_comfortable_day_fraction=0.62, raw_days_above_85=20, raw_days_below_50=110,
@@ -119,7 +123,8 @@ def make_sample() -> pd.DataFrame:
                 raw_pressure_diurnal_hpa=6.6, raw_pressure_synoptic_hpa=6.0,
                 raw_tick_established="N",
                 raw_lyme_incidence_per_100k=0.0, raw_lyme_cases_2023=0,
-                raw_annual_pm25_ugm3=4.5, raw_annual_ghi=6.0),
+                raw_annual_pm25_ugm3=4.5, raw_annual_ghi=6.0,
+                raw_dem_two_party_pct=76.0),
         # Phoenix, AZ — extreme heat, very dry, very sunny.
         _anchor("Phoenix", "AZ", "Maricopa", "04013", 33.45, -112.07,
                 raw_comfortable_day_fraction=0.40, raw_days_above_85=175, raw_days_below_50=8,
@@ -128,7 +133,8 @@ def make_sample() -> pd.DataFrame:
                 raw_pressure_diurnal_hpa=3.4, raw_pressure_synoptic_hpa=4.4,
                 raw_tick_established="N",
                 raw_lyme_incidence_per_100k=0.3, raw_lyme_cases_2023=2,
-                raw_annual_pm25_ugm3=8.5, raw_annual_ghi=6.3),
+                raw_annual_pm25_ugm3=8.5, raw_annual_ghi=6.3,
+                raw_dem_two_party_pct=52.0),
         # International Falls, MN — brutal cold, low sun.
         _anchor("International Falls", "MN", "Koochiching", "27071", 48.60, -93.41,
                 raw_comfortable_day_fraction=0.34, raw_days_above_85=2, raw_days_below_50=238,
@@ -137,7 +143,8 @@ def make_sample() -> pd.DataFrame:
                 raw_pressure_diurnal_hpa=4.6, raw_pressure_synoptic_hpa=9.6,
                 raw_tick_established="Y",
                 raw_lyme_incidence_per_100k=25.0, raw_lyme_cases_2023=5,
-                raw_annual_pm25_ugm3=4.0, raw_annual_ghi=3.6),
+                raw_annual_pm25_ugm3=4.0, raw_annual_ghi=3.6,
+                raw_dem_two_party_pct=46.0),
         # Hartford, CT — humid east, Lyme epicenter.
         _anchor("Hartford", "CT", "Hartford", "09003", 41.76, -72.67,
                 raw_comfortable_day_fraction=0.50, raw_days_above_85=18, raw_days_below_50=120,
@@ -146,7 +153,8 @@ def make_sample() -> pd.DataFrame:
                 raw_pressure_diurnal_hpa=4.0, raw_pressure_synoptic_hpa=8.2,
                 raw_tick_established="Y",
                 raw_lyme_incidence_per_100k=120.0, raw_lyme_cases_2023=900,
-                raw_annual_pm25_ugm3=7.0, raw_annual_ghi=3.9),
+                raw_annual_pm25_ugm3=7.0, raw_annual_ghi=3.9,
+                raw_dem_two_party_pct=80.0),
     ]
     df = pd.concat([towns, pd.DataFrame(anchors)], ignore_index=True)
     return df
