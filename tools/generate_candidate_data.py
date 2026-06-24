@@ -81,6 +81,10 @@ def stage_specs() -> list[dict]:
          "out": ["raw_annual_ghi"],
          "deps": [C.GHI_ZIP_URL, C.SUNLIGHT_MODE],
          "version": 1},
+        {"name": "politics",
+         "out": ["raw_dem_two_party_pct"],
+         "deps": [C.POLITICS_PRECINCT_URL],
+         "version": 1},
     ]
 
 
@@ -123,7 +127,7 @@ def build_or_load_base(anchors_only: bool, force: bool = False):
 
 def build_real_matrix(anchors_only: bool = False, force: set[str] | None = None):
     from data_pipeline import (places, sampling, ticks, era5, air_quality, isolation, nature,
-                        airports, amenities)
+                        airports, amenities, politics)
 
     force = force or set()
     all_ = "all" in force
@@ -151,6 +155,7 @@ def build_real_matrix(anchors_only: bool = False, force: set[str] | None = None)
         "amenities": amenities.attach_amenity,
         "isolation": isolation.attach_isolation,
         "sunlight": sampling.sunlight,
+        "politics": politics.attach_politics,
     }
     df = base
     print("[criteria] (cached stages are skipped)")

@@ -124,6 +124,7 @@ ranked across all towns. Each town keeps both the raw measured value and the sco
 | **Isolation** | Regional remoteness: low population within 50 km combined with distance to the nearest city of ≥50k; more isolated scores higher (a low-density suburb inside a metro is correctly not isolated). | Census places + 2020 decennial population (derived) |
 | **Airport** | Air-travel access: great-circle distance to the nearest large- or medium-hub commercial airport with scheduled service; closer scores higher. | OurAirports (US large/medium hubs) |
 | **Amenities** | Everyday big-box amenity access, proxied by distance to the nearest Costco warehouse; closer scores higher. | OpenStreetMap (Overpass) |
+| **Politics** | Local political lean: Democratic share of the two-party 2024 presidential vote in the town's precinct; more Democratic-voting scores higher. Precinct-level (not county), so a left-leaning town in a right-leaning county is captured. | NYT national 2024 presidential precinct results, spatial-joined to the town centroid |
 
 ### Method notes
 

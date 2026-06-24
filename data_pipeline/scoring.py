@@ -186,6 +186,7 @@ def _raw_units(col: str) -> str:
         "raw_pressure_diurnal_hpa": "hPa/day", "raw_pressure_synoptic_hpa": "hPa",
         "raw_lyme_incidence_per_100k": "cases/100k", "raw_lyme_cases_2023": "cases/yr",
         "raw_tick_established": "Y/N", "raw_annual_ghi": "kWh/m²/day",
+        "raw_dem_two_party_pct": "% two-party Dem",
     }
     return table.get(col, "")
 

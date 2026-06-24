@@ -30,18 +30,16 @@ tbody tr:hover { background:#f5f8ff; } tr.sel { background:#e8f0fe !important; }
 .layer { border:1px solid #e3e6ea; border-radius:6px; padding:8px; background:#fff;}
 .layer h4 { margin:0 0 2px; font-size:13px; } .layer .u { font-size:11px; color:#6b7280; margin-bottom:4px;}
 canvas { display:block; max-width:100%; }
-.crit-row { padding:8px 2px; border-bottom:1px solid #f0f2f4; border-radius:5px; }
+.crit-row { display:flex; align-items:center; gap:6px; padding:2px 3px; border-radius:5px; }
 .crit-row:hover { background:#f5f8ff; }
-.crit-top { display:flex; align-items:center; gap:8px; cursor:pointer; }
-.crit-top input[type=checkbox]{ margin:0; flex:none; }
-.crit-top .cname { font-weight:600; flex:1; min-width:0; }
-.crit-bot { display:flex; align-items:center; gap:6px; margin-top:5px; padding-left:2px; }
-.crit-bot input[type=range]{ flex:1; min-width:0; }
-.crit-bot .wv { width:15px; text-align:right; font-size:12px; color:#444; flex:none; }
-.crit-bot .floorlbl { font-size:11px; color:#6b7280; margin-left:4px; flex:none; }
-.crit-bot input[type=number]{ width:46px; text-align:right; flex:none; padding:3px 4px; }
+.crit-row .cn { display:flex; align-items:center; gap:6px; flex:1; min-width:0; cursor:pointer; }
+.crit-row .cn input[type=checkbox]{ margin:0; flex:none; }
+.crit-row .cname { font-weight:600; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.crit-row input[type=range]{ width:84px; flex:none; }
+.crit-row .wv { width:14px; text-align:right; font-size:12px; color:#444; flex:none; }
+.crit-row input[type=number]{ width:40px; text-align:right; flex:none; padding:2px 3px; font-size:12px; }
 .crit-row.off .cname { color:#9aa1ab; font-weight:500; }
-.crit-row.off .crit-bot { opacity:.45; }
+.crit-row.off input[type=range], .crit-row.off input[type=number] { opacity:.5; }
 .acwrap { position:relative; display:inline-block; }
 .ac { position:absolute; left:0; top:100%; margin-top:2px; z-index:40; background:#fff; border:1px solid #cfd4da; border-radius:6px; box-shadow:0 8px 22px rgba(0,0,0,.14); min-width:190px; max-height:280px; overflow:auto; }
 .ac-item { padding:5px 9px; font-size:13px; cursor:pointer; white-space:nowrap; }
@@ -64,7 +62,7 @@ input[type=range]{ width:100%; } input[type=number]{ width:70px; padding:3px 5px
 .btn.sec { background:#fff; color:#1a56db; border:1px solid #c3d0ee; }
 .btn:hover{ filter:brightness(1.05);} .btn:disabled{opacity:.5; cursor:default;}
 .flex { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-.cols2 { display:grid; grid-template-columns:258px minmax(0,1fr) 312px; gap:12px; align-items:start;}
+.cols2 { display:grid; grid-template-columns:300px minmax(0,1fr) 312px; gap:12px; align-items:start;}
 @media(max-width:1180px){ .cols2{grid-template-columns:236px minmax(0,1fr) 290px;} }
 @media(max-width:900px){ .cols2{grid-template-columns:1fr;} }
 .legend { display:flex; align-items:center; gap:6px; font-size:11px; color:#6b7280; }
@@ -286,22 +284,22 @@ function showCriterionInfo(c){const d=$('#detail');if(!d)return;const md=(DATA.m
 
 function buildExplore(){
   const root=$('#explore');root.innerHTML='';const layout=el('div',{class:'cols2',id:'explayout'});const left=el('div');
-  const cp=el('div',{class:'card'});cp.append(el('h2',{},'Criteria'));
-  cp.append(el('div',{class:'flex',style:'margin-bottom:6px'},
-    el('button',{class:'btn sec',onclick:()=>setAllCriteria(true)},'Select all'),
-    el('button',{class:'btn sec',onclick:()=>setAllCriteria(false)},'Select none'),
-    el('span',{class:'small muted'},'slider 0–10 = importance · floor gates · hover a row to preview the layer')));
+  const cp=el('div',{class:'card'});
+  cp.append(el('div',{class:'flex',style:'justify-content:space-between;align-items:baseline;margin-bottom:2px'},
+    el('h2',{style:'margin:0'},'Criteria'),
+    el('div',{class:'flex',style:'gap:6px'},
+      el('button',{class:'btn sec',style:'padding:2px 8px',onclick:()=>setAllCriteria(true)},'All'),
+      el('button',{class:'btn sec',style:'padding:2px 8px',onclick:()=>setAllCriteria(false)},'None'))));
+  cp.append(el('div',{class:'small muted',style:'margin-bottom:6px;display:flex;justify-content:space-between'},el('span',{},'importance 0–10'),el('span',{},'floor ≥')));
   critControls=[];
   for(const c of DATA.criteria){
-    const row=el('div',{class:'crit-row'+(c.enabled?'':' off')});
+    const row=el('div',{class:'crit-row'+(c.enabled?'':' off'),title:c.label+(c.units?' — '+c.units:'')});
     const tog=el('input',{type:'checkbox'});tog.checked=c.enabled;tog.addEventListener('change',()=>{c.enabled=tog.checked;row.classList.toggle('off',!tog.checked);recompute();});
     const sl=el('input',{type:'range',min:'0',max:'10',step:'1',value:String(c.weight)});
     const wv=el('span',{class:'wv'},String(c.weight));
     sl.addEventListener('input',()=>{c.weight=+sl.value;wv.textContent=sl.value;recompute();});
-    const fl=el('input',{type:'number',min:'0',max:'100',placeholder:'—',title:'minimum score to keep a town',value:(c.floor!=null?String(c.floor):'')});fl.addEventListener('input',()=>{c.floor=fl.value===''?null:+fl.value;recompute();});
-    const top=el('label',{class:'crit-top'},tog,el('span',{class:'cname'},c.label));
-    const bot=el('div',{class:'crit-bot'},sl,wv,el('span',{class:'floorlbl'},'floor ≥'),fl);
-    row.append(top,bot);
+    const fl=el('input',{type:'number',min:'0',max:'100',placeholder:'–',title:'minimum score to keep a town',value:(c.floor!=null?String(c.floor):'')});fl.addEventListener('input',()=>{c.floor=fl.value===''?null:+fl.value;recompute();});
+    row.append(el('label',{class:'cn'},tog,el('span',{class:'cname'},c.label)),sl,wv,fl);
     row.addEventListener('mouseenter',()=>{previewLayer(c);showCriterionInfo(c);});
     row.addEventListener('mouseleave',()=>{const hv=$('#maphover');if(hv)hv.style.display='none';redrawCompMap();renderDetail();});
     critControls.push({c,tog,sl,fl,wv});
@@ -311,11 +309,11 @@ function buildExplore(){
   const opt=el('div',{class:'card'});opt.append(el('h3',{},'Display & export'));
   const pf=el('input',{type:'number',min:'0',placeholder:'0',style:'width:90px'});pf.addEventListener('input',recompute);
   if(DATA._sess&&DATA._sess.pop) pf.value=DATA._sess.pop;
-  opt.append(el('div',{class:'flex',style:'margin-bottom:8px'},el('span',{class:'small'},'Min population:'),pf,el('span',{class:'small muted'},'(thins tiny CDPs)')));
+  opt.append(el('div',{class:'flex',style:'margin-bottom:6px'},el('span',{class:'small'},'Min population:'),pf,el('span',{class:'small muted'},'(thins tiny CDPs)')));
   const topN=el('input',{type:'number',min:'1',value:String((DATA._sess&&DATA._sess.topN)||100),id:'topN',style:'width:80px'});
   topN.addEventListener('input',()=>{renderResults();saveSession();});
-  opt.append(el('div',{class:'flex',style:'margin-bottom:8px'},el('span',{class:'small'},'Show / export top:'),topN,el('button',{class:'btn sec',onclick:exportCSV},'Export shortlist CSV')));
-  opt.append(el('h3',{style:'margin-top:10px'},'Weight profiles'));
+  opt.append(el('div',{class:'flex',style:'margin-bottom:6px'},el('span',{class:'small'},'Show / export top:'),topN,el('button',{class:'btn sec',onclick:exportCSV},'Export CSV')));
+  opt.append(el('h3',{style:'margin-top:8px'},'Weight profiles'));
   const pname=el('input',{type:'text',placeholder:'profile name',style:'width:130px;padding:3px 5px;border:1px solid #cfd4da;border-radius:4px'});
   opt.append(el('div',{class:'flex'},pname,el('button',{class:'btn sec',onclick:()=>saveProfile(pname.value)},'Save'),el('select',{id:'psel'}),el('button',{class:'btn sec',onclick:()=>loadProfile($('#psel').value)},'Load'),el('button',{class:'btn sec',onclick:()=>delProfile($('#psel').value)},'Delete')));
   opt.append(el('div',{class:'flex',style:'margin-top:6px'},el('button',{class:'btn sec',onclick:compareProfiles},'Compare two profiles')),el('div',{id:'cmp',class:'small',style:'margin-top:8px'}));
