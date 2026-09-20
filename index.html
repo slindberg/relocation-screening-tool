@@ -57,6 +57,8 @@ canvas { display:block; max-width:100%; }
 .detlinks { margin-top:10px; display:flex; gap:8px; }
 .detlinks a { font-size:12px; font-weight:600; color:#1a56db; text-decoration:none; border:1px solid #c3d0ee; border-radius:6px; padding:4px 10px; background:#fff; }
 .detlinks a:hover { background:#eef3ff; }
+.dtl .subv { font-size:11px; font-style:italic; color:#6b7280; margin-top:2px; }
+.dtl .subv.pass { color:#0a7d33; } .dtl .subv.fail { color:#c0392b; }
 input[type=range]{ width:100%; } input[type=number]{ width:70px; padding:3px 5px; border:1px solid #cfd4da; border-radius:4px; }
 .btn { background:#1a56db; color:#fff; border:none; border-radius:6px; padding:7px 13px; font-size:13px; font-weight:600; cursor:pointer; }
 .btn.sec { background:#fff; color:#1a56db; border:1px solid #c3d0ee; }
@@ -100,6 +102,22 @@ const $=(s,r=document)=>r.querySelector(s);
 const el=(t,a={},...kids)=>{const e=document.createElement(t);for(const k in a){if(k==='class')e.className=a[k];else if(k==='html')e.innerHTML=a[k];else if(k.startsWith('on'))e.addEventListener(k.slice(2),a[k]);else e.setAttribute(k,a[k]);}for(const c of kids){if(c==null)continue;e.append(c.nodeType?c:document.createTextNode(c));}return e;};
 const fmt=(v,d=1)=>v==null||v===''||Number.isNaN(+v)?'—':(+v).toLocaleString(undefined,{maximumFractionDigits:d});
 const prettify=s=>s.replace(/^score_/,'').replace(/^raw_/,'').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+// compact, unambiguous label for a raw column (used in the town-detail breakdown)
+function rawLabel(col,unit){
+  let m=col.match(/^raw_days_above_(\d+)/); if(m) return '>'+m[1]+'°F';
+  m=col.match(/^raw_days_below_(\d+)/); if(m) return '<'+m[1]+'°F';
+  let s=prettify(col).toLowerCase()
+    .replace('comfortable','comfy').replace('fraction','frac')
+    .replace('relative humidity','RH').replace('precipitation','precip')
+    .replace('probability','prob').replace('incidence','inc.')
+    .replace(' per ',' / ').replace('within','≤').replace('distance','dist')
+    .replace('established','est.').replace('annual','ann.').replace('nearest','near')
+    .replace(/ pct$/,'').replace(/ f$/,'');
+  // drop trailing tokens that merely repeat the unit (e.g. "dist to city km" + "km")
+  const un=(unit||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  if(un) for(let i=0;i<3;i++){const t=s.match(/[\s/]+([a-z0-9]+)$/);if(t&&t[1].length<=5&&un.includes(t[1]))s=s.slice(0,t.index);else break;}
+  return s.replace(/[\s/]+$/,'').trim();
+}
 const CMAP=[[215,48,39],[252,141,89],[254,224,139],[145,207,96],[26,152,80]];
 function color(t){ if(t==null||Number.isNaN(t))return'#c8ccd2'; t=Math.max(0,Math.min(1,t)); const x=t*(CMAP.length-1),i=Math.floor(x),f=x-i,a=CMAP[i],b=CMAP[Math.min(i+1,CMAP.length-1)]; return `rgb(${a[0]+(b[0]-a[0])*f|0},${a[1]+(b[1]-a[1])*f|0},${a[2]+(b[2]-a[2])*f|0})`; }
 const D2R=Math.PI/180, phi1=29.5*D2R,phi2=45.5*D2R,lon0=-96*D2R,lat0=23*D2R;
@@ -409,12 +427,11 @@ function renderDetail(){const d=$('#detail');if(!d)return;const o=DATA.rows.find
   </div>`;
   h+='<table class="dtl"><thead><tr><th>Criterion</th><th style="text-align:right">Score</th><th style="text-align:right">Contrib</th></tr></thead><tbody>';
   for(const c of DATA.criteria){const v=o.s[c.scoreCol];
-    let rawTxt='—';if(c.raws.length){rawTxt=c.raws.map(rc=>{const rv=o._g[DATA.li[rc.col]];if(rv==null||rv==='')return null;const num=+rv;const disp=Number.isNaN(num)?rv:fmt(num,Math.abs(num)<10?2:0);const u=rc.units&&!/Y\/N/.test(rc.units)?' '+rc.units.split('(')[0].trim():'';return disp+u;}).filter(Boolean).join(', ')||'—';}
+    let rawTxt='—';if(c.raws.length){const multi=c.raws.length>1;rawTxt=c.raws.map(rc=>{const rv=o._g[DATA.li[rc.col]];if(rv==null||rv==='')return null;const num=+rv;const disp=Number.isNaN(num)?rv:fmt(num,Math.abs(num)<10?2:0);let u=(rc.units&&!/Y\/N/.test(rc.units))?rc.units.split('(')[0].trim():'';if(/^(fraction|code)$/i.test(u))u='';u=u.replace(/^days\/yr$/i,'d/yr');const lab=multi?rawLabel(rc.col,u):'';if(lab&&u){const head=u.toLowerCase().split(/[\/\s]/)[0];const syn=({persons:['pop','population','people'],cases:['case','cases']})[head]||[];const words=lab.toLowerCase().split(/[^a-z0-9]+/);if(words.includes(head)||syn.some(w=>words.includes(w)))u='';}const nosp=(u==='%'||u==='°F'||u==='°C');const val=disp+(u?(nosp?u:' '+u):'');return (lab?lab+' ':'')+val;}).filter(Boolean).join(multi?'<br>':', ')||'—';}
     const contrib=(c.enabled&&c.weight>0&&v!=null&&den>0)?(c.weight*v/den):null;
-    const meta=(c.enabled?'wt '+c.weight:'<span class="fail">off</span>')+(c.floor!=null?' · floor '+c.floor+' '+(v!=null&&v>=c.floor?'<span class="pass">✓</span>':'<span class="fail">✗</span>'):'');
-    h+=`<tr style="${c.enabled?'':'opacity:.5'}"><td><b>${c.label}</b><div class="small muted">${rawTxt} · ${meta}</div></td>
-      <td style="text-align:right;vertical-align:top;color:${color((v||0)/100)};font-weight:600">${fmt(v,1)}</td>
-      <td style="text-align:right;vertical-align:top">${contrib!=null?fmt(contrib,1):'—'}<div class="bar" style="margin-top:3px;margin-left:auto;width:${contrib!=null?Math.max(2,Math.min(90,Math.round(contrib*1.2))):0}px;background:${color((v||0)/100)}"></div></td></tr>`;}
+    h+=`<tr style="${c.enabled?'':'opacity:.5'}"><td><b>${c.label}</b><div class="small muted">${rawTxt}</div></td>
+      <td style="text-align:right;vertical-align:top"><span style="color:${color((v||0)/100)};font-weight:600">${fmt(v,1)}</span>${c.floor!=null?`<div class="subv ${v!=null&&v<c.floor?'fail':''}">floor ${c.floor}</div>`:''}</td>
+      <td style="text-align:right;vertical-align:top">${contrib!=null?fmt(contrib,1):'—'}<div class="bar" style="margin-top:3px;margin-left:auto;width:${contrib!=null?Math.max(2,Math.min(90,Math.round(contrib*1.2))):0}px;background:${color((v||0)/100)}"></div><div class="subv">${c.enabled?'wt '+c.weight:'off'}</div></td></tr>`;}
   h+='</tbody></table><div class="small muted" style="margin-top:6px">Contribution = weight × score ÷ Σ weights; enabled contributions sum to the composite.</div>';
   d.innerHTML=h;}
 function exportCSV(){if(!lastOrder)return;const N=getTopN(),top=currentList().slice(0,N),enabled=DATA.criteria.filter(c=>c.enabled&&c.weight>0);
