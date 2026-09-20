@@ -21,7 +21,8 @@ For every criterion, produce **two** columns: `raw_<name>` (human-readable value
 | Criterion | Source (format) | Processing | Raw metric | Direction |
 |---|---|---|---|---|
 | Temperature comfort | PRISM daily normals 1991–2020, tmax (4km raster) | Sample at centroid; count days with daytime high in 50–85°F. Penalize days >85°F at 2× the weight of days <50°F (heat is harder to mitigate than cold). Score = **percentile rank** of the weighted comfort index (comfortable − 2·hot − cold). | Comfortable-day fraction; days >85°F; days <50°F | Higher index → higher |
-| Dryness / mold | PRISM annual precipitation `ppt` + mean RH (derived from `tdmean` + `tmean`) (4km) | Wetness composite = 0.5·pct(annual precip) + 0.5·pct(annual mean RH), inverted. Captures mould propensity (year-round wetness + dampness); annual mean dewpoint retained as a raw. | Annual precip (in/yr); annual mean RH (%); mean dewpoint (°F) | Lower (drier) → higher |
+| Dryness / mould (humidity) | PRISM annual mean RH (derived from `tdmean` + `tmean`) (4km) | Percentile rank of annual mean relative humidity, inverted. RH is the direct driver of surface/airborne mould; annual mean dewpoint kept as a context raw. | Annual mean RH (%); mean dewpoint (°F) | Lower RH (drier) → higher |
+| Rainfall | PRISM annual precipitation `ppt` (4km) | Percentile rank of annual precipitation, inverted. Separate low-weight axis: the liquid-water moisture pathway (wet climate / water intrusion), distinct from airborne humidity and **not** captured by sunlight (rainfall vs GHI ≈ 0 rank-correlation). | Annual precip (in/yr) | Lower (drier) → higher |
 | Wildfire (local hazard) | USDA **FSim 270 m** burn probability (RDS-2016-0034-3, `CONUS_BP.tif`) | Sample a small grid of points around the centroid and average the valid (burnable) cells — a town's exposure comes from surrounding wildland. | Burn probability | Lower → higher |
 | Air quality (chronic PM2.5) | Satellite-derived **annual-mean surface PM2.5** (~0.01°, WashU ACAG) | Sample the gridded annual-mean PM2.5 surface at the town centroid (small-neighborhood fallback for coastal nodata). Chronic long-term exposure, independent of local burn hazard. | Annual-mean PM2.5 (µg/m³) | Lower → higher |
 | ~~Pollen~~ *(too location-specific to pre-compute — see below)* | — | No national column: no trustworthy free national layer exists | — | — |
@@ -70,7 +71,7 @@ being seriously considered, not baked into this matrix.
 
 Map each raw metric to 0–100. Default to **percentile rank** across all candidate towns (robust to outliers), or a documented piecewise/composite curve where a real threshold or multi-input blend matters. Record the chosen method per column in the metadata file. Always retain raw values so the tool can show real numbers ("19 days/yr over 85°F"), not just an abstract score.
 
-As built: **temperature comfort** is the percentile rank of the weighted comfort index (`comfortable − 2·hot − cold`) — percentile rather than a linear map, so both heat and cold extremes spread to the bottom and the distribution isn't compressed. **Dryness** is a composite: `0.5·pct(annual precip) + 0.5·pct(annual mean RH)`, inverted. **Lyme** is zero-inflated, so 0-case counties get the top score (100) and positive-incidence counties are inverse-rank-scored among themselves. All other criteria are plain percentile rank.
+As built: **temperature comfort** is the percentile rank of the weighted comfort index (`comfortable − 2·hot − cold`) — percentile rather than a linear map, so both heat and cold extremes spread to the bottom and the distribution isn't compressed. **Dryness** is the inverted percentile of annual mean RH, and **rainfall** the inverted percentile of annual precipitation — two independent axes (see the 2026-09-20 changelog). **Lyme** is zero-inflated, so 0-case counties get the top score (100) and positive-incidence counties are inverse-rank-scored among themselves. All other criteria are plain percentile rank.
 
 ## Output
 
@@ -100,10 +101,10 @@ After scoring, verify these named anchor towns land where their climate makes ob
 
 | Town | Expected HIGH (top quartile) | Expected LOW (bottom quartile) |
 |---|---|---|
-| Olympia, WA | — | sun; dryness; pressure-synoptic |
+| Olympia, WA | — | sun; dryness; rainfall; pressure-synoptic |
 | San Luis Obispo, CA | temperature comfort; pressure-diurnal; pressure-synoptic | — |
-| Santa Fe, NM | sun; dryness; Lyme (low risk) | pressure-diurnal |
-| Phoenix, AZ | sun; dryness | temperature comfort |
+| Santa Fe, NM | sun; dryness; rainfall; Lyme (low risk) | pressure-diurnal |
+| Phoenix, AZ | sun; dryness; rainfall | temperature comfort |
 | International Falls, MN | — | temperature comfort; sun |
 | Hartford, CT | — | Lyme (high risk); dryness |
 
@@ -115,7 +116,7 @@ Coverage: this set exercises every major data layer — sun (Olympia low vs. Pho
 
 - **Olympia, WA — pressure-synoptic.** ERA5 std-of-daily-mean MSLP measures swing *amplitude*; maritime air moderates the PNW's amplitude though fronts are frequent, so Olympia ranks mid (~57th pct). The largest-amplitude swings are the continental north.
 - **International Falls, MN — temperature comfort.** The 2× heat penalty crowds the bottom quartile with desert heat, so a cold-extreme (not hot) town lands ~37th pct — the honest result of that weighting.
-- **Hartford, CT — dryness.** On the rainfall+humidity composite the Northeast is only ~mid-pack nationally; the wettest/most-mould-prone quartile is the SE / Gulf / Appalachia / Pacific NW.
+- **Hartford, CT — dryness.** On annual mean RH the Northeast is only ~mid-pack nationally; the most humid (lowest-dryness) places are the marine PNW / Pacific coast / Gulf / Appalachia. (Hartford still ranks clearly wet on the separate rainfall axis.)
 - **Santa Fe, NM — Lyme.** Scores ~85 (very low risk). >50% of US counties report zero Lyme (all scoring 100), so q75=100 and strict "top quartile" requires zero cases; non-endemic NM still reports a case or two, so Santa Fe sits just below the zero mass.
 
 All other anchors pass.
@@ -171,3 +172,12 @@ A **data-coverage check** was added to the smoke test at the same time: any key 
 Added **`score_politics`**: the Democratic share of the two-party **2024** presidential vote — Dem / (Dem + Rep) — in the **precinct** containing each town centroid, percentile-ranked so more Democratic-voting towns score higher. Precinct-level (not county) was chosen deliberately so a left-leaning town inside a right-leaning county (college towns, state capitals) is captured — county returns would blur exactly the cases of interest. Single most-recent cycle, no multi-year averaging (per the requirement).
 
 Source: the NYT national 2024 presidential precinct **TopoJSON** (`precincts-with-results.topojson.gz`), which carries both precinct geometry and the `votes_dem`/`votes_rep` columns, spatially joined to each centroid. (The sibling `.csv.gz` is results-only — no geometry — so it can't be used.) It's a large (~1 GB) **provide-once** layer, resolved via `POLITICS_PRECINCT_FILE` / `data/raw/politics/` / auto-download from `POLITICS_PRECINCT_URL`; the loader reads geo files including gzipped ones (`.topojson[.gz]`/`.geojson[.gz]`/`.gpkg`/`.shp`, via GDAL's `/vsigzip/`) or a `.csv[.gz]` that contains a WKT geometry column, and auto-detects the Dem/Rep vote columns. The metric measures how an area *votes*, not residents' policy ideology directly (a survey-MRP ideology layer was considered but only covers places ≥25k population). Towns whose centroid lands outside any precinct are left null and flagged by the coverage check.
+
+### Dryness → pure RH, + separate rainfall axis (2026-09-20)
+
+Split the old dryness composite into two independent percentile axes:
+
+- **`score_dryness`** is now the inverted percentile of **annual mean relative humidity only** (was `0.5·pct(precip) + 0.5·pct(RH)`). RH is the direct driver of surface/airborne mould, and the composite's precipitation half was letting low-rain-but-humid places (coastal/marine, e.g. SF-type fog climates) score misleadingly "dry" despite high year-round humidity — the case that prompted this. Annual mean dewpoint stays a context raw.
+- **`score_rainfall`** (new, low weight by design): inverted percentile of annual precipitation, so a drier climate scores higher. It captures the *liquid-water* moisture/mould pathway (wet climate, envelope/ground-water intrusion), which is distinct from airborne humidity.
+
+Rainfall was made its own axis rather than folded back in or delegated to sunlight because, across the 31,519-town run, annual precipitation and GHI are essentially uncorrelated by rank (Spearman ≈ −0.07; Pearson −0.31, carried only by the desert/PNW extremes) — the humid-but-sunny Southeast/Gulf is both rainy and sunny, so sunlight cannot proxy for rainfall. RH and precipitation are correlated (Pearson ≈ +0.68) but only ~46% shared variance, so the two axes are not redundant. Both raws come from the existing PRISM sampling stage, so no recompute is needed — the scores rebuild from cached raws.

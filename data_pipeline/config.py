@@ -339,21 +339,43 @@ CRITERIA = [
         "name": "dryness",
         "score_col": "score_dryness",
         "raw_cols": [
-            ("raw_annual_precip_in", "annual precipitation (inches/yr)"),
             ("raw_mean_relative_humidity_pct", "annual mean relative humidity (%)"),
-            ("raw_mean_dewpoint_f", "annual mean dewpoint (°F)"),
+            ("raw_mean_dewpoint_f", "annual mean dewpoint (°F) — context"),
         ],
-        "units": "percentile of wetness composite, inverted (0-100)",
-        "source": "PRISM annual precipitation (ppt) + annual mean RH (tdmean + tmean), 4km normals",
+        "units": "percentile of annual mean RH, inverted (0-100)",
+        "source": "PRISM annual mean RH (derived from tdmean + tmean), 4km normals",
         "source_date": "1991-2020 normals",
-        "score_method": "composite",  # scoring.score_dryness
+        "score_method": "percentile",
+        "higher_is_better": False,  # lower humidity (drier air) scores higher
+        "raw_for_score": "raw_mean_relative_humidity_pct",
         "description": (
-            "Mould-growth propensity. Wetness composite = 0.5*percentile(annual "
-            "precipitation) + 0.5*percentile(annual mean relative humidity); drier "
-            "(less rain + lower humidity) scores higher. Annual figures are used so "
-            "year-round damp climates (e.g. the Pacific NW, wet/cool most of the year "
-            "rather than summer-muggy) are captured. Annual mean dewpoint is also "
-            "retained as a raw column."
+            "Mould-growth propensity from humidity: percentile rank of annual mean "
+            "relative humidity, inverted so drier air scores higher. RH is the direct "
+            "driver of surface/airborne mould. Rainfall — a separate liquid-water "
+            "pathway (wet climate, water intrusion) — is scored independently as "
+            "score_rainfall, since rainfall and humidity are only partly correlated "
+            "and rainfall is not captured by sunlight. Annual mean dewpoint is kept as "
+            "a context raw."
+        ),
+    },
+    {
+        "name": "rainfall",
+        "score_col": "score_rainfall",
+        "raw_cols": [("raw_annual_precip_in", "annual precipitation (inches/yr)")],
+        "units": "percentile (0-100)",
+        "source": "PRISM annual precipitation (ppt), 4km normals",
+        "source_date": "1991-2020 normals",
+        "score_method": "percentile",
+        "higher_is_better": False,  # less rain scores higher (drier)
+        "raw_for_score": "raw_annual_precip_in",
+        "description": (
+            "Rainfall load: percentile rank of annual precipitation, inverted so a "
+            "drier (less rainy) climate scores higher. A separate, low-weight axis "
+            "from humidity (score_dryness): it captures the liquid-water moisture/mould "
+            "pathway (wet climate, envelope/ground water) rather than airborne "
+            "humidity. Not interchangeable with sunlight — across US towns rainfall and "
+            "GHI are nearly uncorrelated by rank (the humid-but-sunny Southeast is "
+            "both), so sunlight cannot stand in for it."
         ),
     },
     {
@@ -589,7 +611,8 @@ ANCHORS = [
         "name": "Olympia", "state": "WA",
         "high": [], "low": [
             ("score_sunlight", False),
-            ("score_dryness", False),
+            ("score_dryness", False),        # very humid (marine PNW)
+            ("score_rainfall", False),       # very wet (PNW)
             # ERA5 std-of-daily-mean measures swing AMPLITUDE; maritime air moderates
             # PNW amplitude though fronts are frequent, so Olympia ranks mid. Accepted.
             ("score_pressure_synoptic", "accepted"),
@@ -608,7 +631,8 @@ ANCHORS = [
         "name": "Santa Fe", "state": "NM",
         "high": [
             ("score_sunlight", False),
-            ("score_dryness", False),
+            ("score_dryness", False),        # arid → low humidity
+            ("score_rainfall", False),       # arid → little rain
             # NM is non-endemic; Santa Fe still reports a case or two (often
             # travel-associated by county of residence), so it scores very low risk
             # (~85) but not the exactly-zero top mass. Zero-inflation: >half of US
@@ -619,7 +643,8 @@ ANCHORS = [
     },
     {
         "name": "Phoenix", "state": "AZ",
-        "high": [("score_sunlight", False), ("score_dryness", False)],
+        "high": [("score_sunlight", False), ("score_dryness", False),
+                 ("score_rainfall", False)],   # desert → little rain
         "low": [("score_temperature_comfort", False)],
     },
     {
@@ -637,9 +662,9 @@ ANCHORS = [
         "high": [],
         "low": [
             ("score_lyme", False),
-            # The Northeast feels humid, but nationally Hartford is only ~mid-pack on
-            # the rainfall+humidity composite; the wettest/most-mould-prone quartile is
-            # the SE / Gulf / Appalachia / Pacific NW. Accepted.
+            # The Northeast feels humid, but on annual mean RH nationally Hartford is
+            # only ~mid-pack; the most humid (lowest-dryness) places are the marine
+            # PNW / Pacific coast / Gulf / Appalachia. Accepted.
             ("score_dryness", "accepted"),
         ],
     },
