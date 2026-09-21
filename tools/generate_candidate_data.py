@@ -74,9 +74,12 @@ def stage_specs() -> list[dict]:
          "deps": [C.OVERPASS_URL, C.COSTCO_WIKIDATA],
          "version": 2},  # v2: dedup co-located OSM elements per Costco
         {"name": "isolation",
-         "out": ["raw_pop_within_50km", "raw_dist_to_city_km", "raw_place_density_per_sqmi"],
-         "deps": [C.CITY_POP_THRESHOLD, C.ISOLATION_RADIUS_KM, C.POP_URL],
-         "version": 1},
+         "out": ["raw_weighted_pop_nearby", "raw_eff_dist_to_city_km",
+                 "raw_dist_to_city_km", "raw_place_density_per_sqmi"],
+         "deps": [C.CITY_POP_THRESHOLD, C.ISOLATION_DECAY_BW_KM,
+                  C.ISOLATION_DECAY_CUTOFF_KM, C.ISOLATION_TERRAIN,
+                  C.TERRAIN_PENALTY_M_PER_M, C.POP_URL],
+         "version": 2},  # v2: terrain-aware effective distance + gravity weighting
         {"name": "sunlight",
          "out": ["raw_annual_ghi"],
          "deps": [C.GHI_ZIP_URL, C.SUNLIGHT_MODE],

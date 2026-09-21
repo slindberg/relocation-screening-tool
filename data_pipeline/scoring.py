@@ -73,8 +73,8 @@ def score_nature_access(df: pd.DataFrame) -> pd.Series:
 def score_isolation(df: pd.DataFrame) -> pd.Series:
     """Regional remoteness, higher = more isolated:
     0.5*pct(low population within radius) + 0.5*pct(far from nearest sizable city)."""
-    pop = pd.to_numeric(df["raw_pop_within_50km"], errors="coerce")
-    dist = pd.to_numeric(df["raw_dist_to_city_km"], errors="coerce")
+    pop = pd.to_numeric(df["raw_weighted_pop_nearby"], errors="coerce")
+    dist = pd.to_numeric(df["raw_eff_dist_to_city_km"], errors="coerce")
     iso = 0.5 * (1.0 - pop.rank(pct=True)) + 0.5 * dist.rank(pct=True)
     return (iso * 100.0).fillna(50.0)
 
@@ -126,7 +126,10 @@ def assemble(df: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
             norm = "0 reported Lyme = 100; positive incidence inverse-rank-scored"
         elif method == "composite" and crit["name"] == "isolation":
             out[col] = score_isolation(out)
-            norm = "0.5*pct(low pop within 50km) + 0.5*pct(far from city >=50k)"
+            norm = (f"0.5*pct(low terrain-aware weighted nearby pop, "
+                    f"Gaussian bw={C.ISOLATION_DECAY_BW_KM:g}km) + "
+                    f"0.5*pct(far from city >={C.CITY_POP_THRESHOLD // 1000}k "
+                    f"by effective distance)")
         elif method == "composite" and crit["name"] == "nature_access":
             out[col] = score_nature_access(out)
             norm = "0.5*pct(close to large protected area) + 0.5*pct(high natural cover)"
@@ -165,7 +168,9 @@ def _raw_units(col: str) -> str:
         "raw_mean_dewpoint_f": "°F", "raw_mean_relative_humidity_pct": "%",
         "raw_burn_probability": "probability (0-1)",
         "raw_annual_pm25_ugm3": "µg/m³",
-        "raw_pop_within_50km": "persons", "raw_dist_to_city_km": "km",
+        "raw_weighted_pop_nearby": "persons (weighted)",
+        "raw_eff_dist_to_city_km": "km (terrain-adjusted)",
+        "raw_dist_to_city_km": "km",
         "raw_place_density_per_sqmi": "persons/sq mi",
         "raw_dist_to_protected_km": "km", "raw_natural_cover_pct": "%",
         "raw_dist_to_airport_mi": "miles", "raw_nearest_airport_iata": "code",
