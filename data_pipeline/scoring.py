@@ -73,20 +73,10 @@ def score_nature_access(df: pd.DataFrame) -> pd.Series:
 def score_isolation(df: pd.DataFrame) -> pd.Series:
     """Regional remoteness, higher = more isolated:
     0.5*pct(low population within radius) + 0.5*pct(far from nearest sizable city)."""
-    pop = pd.to_numeric(df["raw_pop_within_50km"], errors="coerce")
-    dist = pd.to_numeric(df["raw_dist_to_city_km"], errors="coerce")
+    pop = pd.to_numeric(df["raw_weighted_pop_nearby"], errors="coerce")
+    dist = pd.to_numeric(df["raw_eff_dist_to_city_km"], errors="coerce")
     iso = 0.5 * (1.0 - pop.rank(pct=True)) + 0.5 * dist.rank(pct=True)
     return (iso * 100.0).fillna(50.0)
-
-
-def score_dryness(df: pd.DataFrame) -> pd.Series:
-    """Mould-propensity composite: wetness = 0.5*pct(annual precip) + 0.5*pct(annual
-    mean RH), both higher = wetter. Inverted so drier (less rain + lower humidity)
-    scores higher. Percentile components make it robust to units/outliers."""
-    pct_p = pd.to_numeric(df["raw_annual_precip_in"], errors="coerce").rank(pct=True)
-    pct_rh = pd.to_numeric(df["raw_mean_relative_humidity_pct"], errors="coerce").rank(pct=True)
-    wetness = 0.5 * pct_p + 0.5 * pct_rh
-    return ((1.0 - wetness) * 100.0).fillna(50.0)
 
 
 # --------------------------------------------------------------------------- #
@@ -131,15 +121,15 @@ def assemble(df: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
             out[col] = percentile_score(out[crit["raw_for_score"]], crit["higher_is_better"])
             direction = "higher" if crit["higher_is_better"] else "lower"
             norm = f"percentile rank ({direction} raw = better); NaN imputed at 50"
-        elif method == "composite" and crit["name"] == "dryness":
-            out[col] = score_dryness(out)
-            norm = "inverted percentile of 0.5*pct(annual precip)+0.5*pct(annual RH)"
         elif method == "composite" and crit["name"] == "lyme":
             out[col] = score_lyme(out)
             norm = "0 reported Lyme = 100; positive incidence inverse-rank-scored"
         elif method == "composite" and crit["name"] == "isolation":
             out[col] = score_isolation(out)
-            norm = "0.5*pct(low pop within 50km) + 0.5*pct(far from city >=50k)"
+            norm = (f"0.5*pct(low terrain-aware weighted nearby pop, "
+                    f"Gaussian bw={C.ISOLATION_DECAY_BW_KM:g}km) + "
+                    f"0.5*pct(far from city >={C.CITY_POP_THRESHOLD // 1000}k "
+                    f"by effective distance)")
         elif method == "composite" and crit["name"] == "nature_access":
             out[col] = score_nature_access(out)
             norm = "0.5*pct(close to large protected area) + 0.5*pct(high natural cover)"
@@ -178,7 +168,9 @@ def _raw_units(col: str) -> str:
         "raw_mean_dewpoint_f": "°F", "raw_mean_relative_humidity_pct": "%",
         "raw_burn_probability": "probability (0-1)",
         "raw_annual_pm25_ugm3": "µg/m³",
-        "raw_pop_within_50km": "persons", "raw_dist_to_city_km": "km",
+        "raw_weighted_pop_nearby": "persons (weighted)",
+        "raw_eff_dist_to_city_km": "km (terrain-adjusted)",
+        "raw_dist_to_city_km": "km",
         "raw_place_density_per_sqmi": "persons/sq mi",
         "raw_dist_to_protected_km": "km", "raw_natural_cover_pct": "%",
         "raw_dist_to_airport_mi": "miles", "raw_nearest_airport_iata": "code",

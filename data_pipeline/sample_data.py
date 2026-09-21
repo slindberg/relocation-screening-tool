@@ -23,7 +23,8 @@ RAW_COLS = [
     "raw_lyme_incidence_per_100k", "raw_lyme_cases_2023", "raw_tick_established",
     "raw_dist_to_protected_km", "raw_natural_cover_pct",
     "raw_dist_to_airport_mi", "raw_nearest_airport_iata", "raw_dist_to_costco_mi",
-    "raw_pop_within_50km", "raw_dist_to_city_km", "raw_place_density_per_sqmi",
+    "raw_weighted_pop_nearby", "raw_eff_dist_to_city_km", "raw_dist_to_city_km",
+    "raw_place_density_per_sqmi",
     "raw_annual_ghi", "raw_dem_two_party_pct",
 ]
 
@@ -68,8 +69,11 @@ def _random_towns(n: int, rng: np.random.Generator) -> pd.DataFrame:
         "raw_dist_to_airport_mi": np.clip(rng.exponential(45, n), 1, 350),
         "raw_nearest_airport_iata": rng.choice(["DEN", "ORD", "ATL", "DFW", "SEA"], n),
         "raw_dist_to_costco_mi": np.clip(rng.exponential(30, n), 1, 300),
-        "raw_pop_within_50km": np.clip(rng.exponential(300000, n), 200, 8e6),
+        "raw_weighted_pop_nearby": np.clip(rng.exponential(300000, n), 200, 8e6),
         "raw_dist_to_city_km": np.clip(rng.exponential(60, n), 0, 400),
+        # effective distance >= straight-line; terrain inflates it by a modest factor
+        "raw_eff_dist_to_city_km": np.clip(
+            rng.exponential(60, n) * rng.uniform(1.0, 1.8, n), 0, 700),
         "raw_place_density_per_sqmi": np.clip(rng.exponential(1500, n), 5, 20000),
         "raw_annual_ghi": np.clip(rng.normal(4.5, 0.55, n), 2.8, 6.5),
         # Dem two-party %: bimodal-ish, spread across the spectrum.
