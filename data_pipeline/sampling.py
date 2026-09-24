@@ -93,33 +93,51 @@ def sample_raster_neighborhood(lon, lat, raster_path, radius_m: float,
 # --------------------------------------------------------------------------- #
 # PRISM-derived raw metrics
 # --------------------------------------------------------------------------- #
-def temperature_comfort(df: pd.DataFrame) -> pd.DataFrame:
-    """Comfortable / hot / cold day counts from 365 daily tmax normals (°C->°F)."""
+def temperature_days(df: pd.DataFrame) -> pd.DataFrame:
+    """Hot / cold / comfortable day counts from the 365 daily tmax normals (°C -> °F),
+    both annual and per calendar month.
+
+    The annual counts drive the two independent scores (score_heat, score_cold). The
+    monthly breakdown is kept as raw context so a summary can show *when* a town's
+    out-of-range days fall — e.g. a desert whose heat already starts in April versus one
+    that stays mild until June, which the annual total cannot distinguish."""
     lon, lat = df["lon"].to_numpy(), df["lat"].to_numpy()
     n = len(df)
-    comfortable = np.zeros(n)
-    hot = np.zeros(n)
-    cold = np.zeros(n)
-    valid = np.zeros(n)
+    hot_m = np.zeros((12, n))
+    cold_m = np.zeros((12, n))
+    valid_m = np.zeros((12, n))
 
-    for bil in fetch.fetch_prism_daily_tmax():
+    for month, bil in zip(fetch.prism_daily_months(), fetch.fetch_prism_daily_tmax()):
         tmax_f = _c_to_f(sample_raster(lon, lat, bil))
         ok = ~np.isnan(tmax_f)
-        valid += ok
-        comfortable += ((tmax_f >= C.COMFORT_LOW_F) & (tmax_f <= C.COMFORT_HIGH_F) & ok)
-        hot += ((tmax_f > C.COMFORT_HIGH_F) & ok)
-        cold += ((tmax_f < C.COMFORT_LOW_F) & ok)
+        i = month - 1
+        valid_m[i] += ok
+        hot_m[i] += ((tmax_f > C.COMFORT_HIGH_F) & ok)
+        cold_m[i] += ((tmax_f < C.COMFORT_LOW_F) & ok)
 
-    # Normalise to a 365-day year in case a handful of days were nodata.
-    scale = np.where(valid > 0, 365.0 / valid, np.nan)
-    comfortable *= scale
-    hot *= scale
-    cold *= scale
+    # Scale each month to its true length in case a few days were nodata.
+    dim = np.array(C.DAYS_IN_MONTH, dtype="float64")[:, None]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        scale_m = np.where(valid_m > 0, dim / valid_m, np.nan)
+    hot_m = hot_m * scale_m
+    cold_m = cold_m * scale_m
 
+    valid = valid_m.sum(axis=0)
+    hot = np.nansum(hot_m, axis=0)
+    cold = np.nansum(cold_m, axis=0)
+    empty = valid == 0
+    hot[empty] = np.nan
+    cold[empty] = np.nan
+
+    # Note: a "comfortable day fraction" is deliberately NOT emitted — the three bands
+    # partition the year, so it is exactly (365 - hot - cold)/365 and carries no
+    # information beyond the two scored columns.
     out = df.copy()
-    out["raw_comfortable_day_fraction"] = comfortable / 365.0
     out["raw_days_above_85"] = hot
     out["raw_days_below_50"] = cold
+    for i, mon in enumerate(C.MONTH_ABBR):
+        out[f"raw_days_above_85_{mon}"] = hot_m[i]
+        out[f"raw_days_below_50_{mon}"] = cold_m[i]
     return out
 
 

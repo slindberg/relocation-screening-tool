@@ -57,6 +57,11 @@ canvas { display:block; max-width:100%; }
 .detlinks { margin-top:10px; display:flex; gap:8px; }
 .detlinks a { font-size:12px; font-weight:600; color:#1a56db; text-decoration:none; border:1px solid #c3d0ee; border-radius:6px; padding:4px 10px; background:#fff; }
 .detlinks a:hover { background:#eef3ff; }
+.spark { display:inline-block; margin-top:4px; }
+.spark .sbars { display:flex; align-items:flex-end; gap:2px; height:14px; }
+.spark .sbars i { width:7px; min-height:1px; background:#a8bccd; border-radius:1px; display:block; }
+.spark .slabels { display:flex; gap:2px; margin-top:1px; }
+.spark .slabels span { width:7px; text-align:center; font-size:8px; line-height:1; color:#9aa1ab; }
 .dtl .subv { font-size:11px; font-style:italic; color:#6b7280; margin-top:2px; }
 .dtl .subv.pass { color:#0a7d33; } .dtl .subv.fail { color:#c0392b; }
 input[type=range]{ width:100%; } input[type=number]{ width:70px; padding:3px 5px; border:1px solid #cfd4da; border-radius:4px; }
@@ -133,10 +138,10 @@ const STATE_NAMES={AL:'Alabama',AK:'Alaska',AZ:'Arizona',AR:'Arkansas',CA:'Calif
 const ranges={}; let MB=null, lastComposite=null, lastOrder=null;
 const ANCHORS=[
  {id:'5351300',name:'Olympia, WA',exp:[['score_sunlight','LOW'],['score_dryness','LOW'],['score_pressure_synoptic','LOW']]},
- {id:'0668154',name:'San Luis Obispo, CA',exp:[['score_temperature_comfort','HIGH'],['score_pressure_diurnal','HIGH'],['score_pressure_synoptic','HIGH']]},
+ {id:'0668154',name:'San Luis Obispo, CA',exp:[['score_heat','HIGH'],['score_cold','HIGH'],['score_pressure_diurnal','HIGH'],['score_pressure_synoptic','HIGH']]},
  {id:'3570500',name:'Santa Fe, NM',exp:[['score_sunlight','HIGH'],['score_dryness','HIGH'],['score_lyme','HIGH'],['score_pressure_diurnal','LOW']]},
- {id:'0455000',name:'Phoenix, AZ',exp:[['score_sunlight','HIGH'],['score_dryness','HIGH'],['score_temperature_comfort','LOW']]},
- {id:'2731040',name:'International Falls, MN',exp:[['score_temperature_comfort','LOW'],['score_sunlight','LOW']]},
+ {id:'0455000',name:'Phoenix, AZ',exp:[['score_sunlight','HIGH'],['score_dryness','HIGH'],['score_heat','LOW']]},
+ {id:'2731040',name:'International Falls, MN',exp:[['score_cold','LOW'],['score_sunlight','LOW']]},
  {id:'0937000',name:'Hartford, CT',exp:[['score_lyme','LOW'],['score_dryness','LOW']]},
 ];
 const PHASE2=['pollen','nature','isolation','airport','amenities'];
@@ -171,9 +176,17 @@ async function boot(){
   for(const c of scoreCols){const v=[];for(const o of rows){const x=o.s[c];if(x!=null&&!Number.isNaN(x))v.push(x);}v.sort((a,b)=>a-b);
     const q=p=>{if(!v.length)return null;const k=(v.length-1)*p,f=Math.floor(k),cc=Math.ceil(k);return f===cc?v[f]:v[f]*(cc-k)+v[cc]*(k-f);};
     ranges[c]={min:v[0],max:v[v.length-1],med:q(.5),p25:q(.25),p75:q(.75),nulls:rows.length-v.length,n:v.length};}
+  const MON=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
   const criteria=scoreCols.map(c=>{const md=meta[c]||{};
-    const raws=(rawGroups[c]||[]).filter(rc=>rc in li).map(rc=>({col:rc,desc:(meta[rc]||{}).description||prettify(rc),units:(meta[rc]||{}).units||''}));
-    return {key:c.replace(/^score_/,''),scoreCol:c,label:prettify(c),desc:md.description||'',units:md.units||'percentile (0-100)',source:md.source||'',raws,enabled:true,weight:5,floor:null};});
+    // split per-month raw columns (…_jan … _dec) out of the raw list; they render as a sparkline
+    const raws=[],months=[];
+    for(const rc of (rawGroups[c]||[]).filter(x=>x in li)){
+      const m=rc.match(/_(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)$/i);
+      if(m) months.push({col:rc,mon:m[1][0].toUpperCase()+m[1].slice(1).toLowerCase(),i:MON.indexOf(m[1].toLowerCase())});
+      else raws.push({col:rc,desc:(meta[rc]||{}).description||prettify(rc),units:(meta[rc]||{}).units||''});
+    }
+    months.sort((a,b)=>a.i-b.i);
+    return {key:c.replace(/^score_/,''),scoreCol:c,label:prettify(c),desc:md.description||'',units:md.units||'percentile (0-100)',source:md.source||'',raws,months,enabled:true,weight:5,floor:null};});
   DATA={li,scoreCols,criteria,meta,rows};
   // restore last session (weights/toggles/floors + view settings) from localStorage
   const _sess=loadSession();
@@ -297,6 +310,7 @@ function showCriterionInfo(c){const d=$('#detail');if(!d)return;const md=(DATA.m
   if(md.normalization_method)h+=`<tr><td class="small muted" style="vertical-align:top">Scoring</td><td class="small">${md.normalization_method}</td></tr>`;
   h+='</tbody></table>';
   if(c.raws&&c.raws.length){h+='<div class="small muted" style="margin-top:8px;font-weight:600">Raw inputs</div><table class="dtl"><tbody>';for(const rc of c.raws){h+=`<tr><td class="small"><b>${prettify(rc.col)}</b>${rc.units?' <span class="muted">('+rc.units+')</span>':''}${rc.desc?'<div class="small muted">'+rc.desc+'</div>':''}</td></tr>`;}h+='</tbody></table>';}
+  if(c.months&&c.months.length)h+=`<div class="small muted" style="margin-top:6px">Plus a per-month breakdown (${c.months.length} columns, Jan–Dec), shown as a sparkline in the town detail.</div>`;
   h+='<div class="small muted" style="margin-top:8px">Hover a criterion to read about it; the map previews that layer.</div>';
   d.innerHTML=h;}
 
@@ -427,9 +441,17 @@ function renderDetail(){const d=$('#detail');if(!d)return;const o=DATA.rows.find
   </div>`;
   h+='<table class="dtl"><thead><tr><th>Criterion</th><th style="text-align:right">Score</th><th style="text-align:right">Contrib</th></tr></thead><tbody>';
   for(const c of DATA.criteria){const v=o.s[c.scoreCol];
-    let rawTxt='—';if(c.raws.length){const multi=c.raws.length>1;rawTxt=c.raws.map(rc=>{const rv=o._g[DATA.li[rc.col]];if(rv==null||rv==='')return null;const num=+rv;const disp=Number.isNaN(num)?rv:fmt(num,Math.abs(num)<10?2:0);let u=(rc.units&&!/Y\/N/.test(rc.units))?rc.units.split('(')[0].trim():'';if(/^(fraction|code)$/i.test(u))u='';u=u.replace(/^days\/yr$/i,'d/yr');const lab=multi?rawLabel(rc.col,u):'';if(lab&&u){const head=u.toLowerCase().split(/[\/\s]/)[0];const syn=({persons:['pop','population','people'],cases:['case','cases']})[head]||[];const words=lab.toLowerCase().split(/[^a-z0-9]+/);if(words.includes(head)||syn.some(w=>words.includes(w)))u='';}const nosp=(u==='%'||u==='°F'||u==='°C');const val=disp+(u?(nosp?u:' '+u):'');return (lab?lab+' ':'')+val;}).filter(Boolean).join(multi?'<br>':', ')||'—';}
+    let rawTxt='—';if(c.raws.length){const multi=c.raws.length>1;rawTxt=c.raws.map(rc=>{const rv=o._g[DATA.li[rc.col]];if(rv==null||rv==='')return null;const num=+rv;const disp=Number.isNaN(num)?rv:fmt(num,Math.abs(num)<10?2:0);let u=(rc.units&&!/Y\/N/.test(rc.units))?rc.units.split('(')[0].trim():'';if(/^(fraction|code)$/i.test(u))u='';u=u.replace(/^days\/yr$/i,'d/yr');const lab=(multi||/^raw_days_(above|below)_/.test(rc.col))?rawLabel(rc.col,u):'';if(lab&&u){const head=u.toLowerCase().split(/[\/\s]/)[0];const syn=({persons:['pop','population','people'],cases:['case','cases']})[head]||[];const words=lab.toLowerCase().split(/[^a-z0-9]+/);if(words.includes(head)||syn.some(w=>words.includes(w)))u='';}const nosp=(u==='%'||u==='°F'||u==='°C');const val=disp+(u?(nosp?u:' '+u):'');return (lab?lab+' ':'')+val;}).filter(Boolean).join(multi?'<br>':', ')||'—';}
     const contrib=(c.enabled&&c.weight>0&&v!=null&&den>0)?(c.weight*v/den):null;
-    h+=`<tr style="${c.enabled?'':'opacity:.5'}"><td><b>${c.label}</b><div class="small muted">${rawTxt}</div></td>
+    let spark='';
+    if(c.months&&c.months.length){
+      const mv=c.months.map(m=>{const rv=o._g[DATA.li[m.col]];if(rv==null||rv==='')return null;const n=+rv;return Number.isNaN(n)?null:n;});
+      if(mv.some(x=>x!=null&&x>0))
+        spark='<div class="spark" title="days per month"><div class="sbars">'
+          +mv.map((x,i)=>`<i style="height:${Math.max(1,Math.round((x||0)/31*14))}px" title="${c.months[i].mon} ${x==null?'—':fmt(x,0)} d"></i>`).join('')
+          +'</div><div class="slabels">'+c.months.map(m=>`<span>${m.mon[0]}</span>`).join('')+'</div></div>';
+    }
+    h+=`<tr style="${c.enabled?'':'opacity:.5'}"><td><b>${c.label}</b><div class="small muted">${rawTxt}</div>${spark}</td>
       <td style="text-align:right;vertical-align:top"><span style="color:${color((v||0)/100)};font-weight:600">${fmt(v,1)}</span>${c.floor!=null?`<div class="subv ${v!=null&&v<c.floor?'fail':''}">floor ${c.floor}</div>`:''}</td>
       <td style="text-align:right;vertical-align:top">${contrib!=null?fmt(contrib,1):'—'}<div class="bar" style="margin-top:3px;margin-left:auto;width:${contrib!=null?Math.max(2,Math.min(90,Math.round(contrib*1.2))):0}px;background:${color((v||0)/100)}"></div><div class="subv">${c.enabled?'wt '+c.weight:'off'}</div></td></tr>`;}
   h+='</tbody></table><div class="small muted" style="margin-top:6px">Contribution = weight × score ÷ Σ weights; enabled contributions sum to the composite.</div>';

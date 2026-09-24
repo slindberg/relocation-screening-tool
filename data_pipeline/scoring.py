@@ -26,21 +26,6 @@ def percentile_score(values: pd.Series, higher_is_better: bool) -> pd.Series:
     return pct.fillna(50.0)
 
 
-def comfort_index(df: pd.DataFrame) -> pd.Series:
-    """comfortable_days - 2*hot_days - cold_days (heat penalised 2x cold)."""
-    comfortable = df["raw_comfortable_day_fraction"] * 365.0
-    hot = df["raw_days_above_85"]
-    cold = df["raw_days_below_50"]
-    return comfortable - C.HEAT_PENALTY_WEIGHT * hot - C.COLD_PENALTY_WEIGHT * cold
-
-
-def score_temperature_comfort(df: pd.DataFrame) -> pd.Series:
-    """Percentile rank of the weighted comfort index (higher = better). Percentile
-    (vs a linear map) keeps the distribution well spread and places both heat and
-    cold extremes in the bottom quartile."""
-    return percentile_score(comfort_index(df), higher_is_better=True)
-
-
 # --------------------------------------------------------------------------- #
 # Composite scorers
 # --------------------------------------------------------------------------- #
@@ -114,10 +99,7 @@ def assemble(df: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
         method = crit["score_method"]
         col = crit["score_col"]
 
-        if method == "composite" and crit["name"] == "temperature_comfort":
-            out[col] = score_temperature_comfort(out)
-            norm = "percentile rank of weighted comfort index (comfortable-2*hot-cold)"
-        elif method == "percentile":
+        if method == "percentile":
             out[col] = percentile_score(out[crit["raw_for_score"]], crit["higher_is_better"])
             direction = "higher" if crit["higher_is_better"] else "lower"
             norm = f"percentile rank ({direction} raw = better); NaN imputed at 50"
@@ -162,8 +144,9 @@ def assemble(df: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
 
 def _raw_units(col: str) -> str:
     table = {
-        "raw_comfortable_day_fraction": "fraction (0-1)",
         "raw_days_above_85": "days/yr", "raw_days_below_50": "days/yr",
+        **{f"raw_days_above_85_{m}": "days/month" for m in C.MONTH_ABBR},
+        **{f"raw_days_below_50_{m}": "days/month" for m in C.MONTH_ABBR},
         "raw_annual_precip_in": "inches/yr",
         "raw_mean_dewpoint_f": "°F", "raw_mean_relative_humidity_pct": "%",
         "raw_burn_probability": "probability (0-1)",

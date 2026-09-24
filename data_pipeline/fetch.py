@@ -164,9 +164,15 @@ def _get_prism_zip(url: str, element: str, date: str, retries: int = 3) -> bytes
 
 
 def fetch_prism_daily_tmax() -> list[Path]:
-    """365 daily tmax normals (MMDD) for the comfort-day counts."""
+    """365 daily tmax normals (MMDD) for the hot/cold day counts."""
     days = _all_mmdd()
     return [fetch_prism("tmax", d) for d in days]
+
+
+def prism_daily_months() -> list[int]:
+    """Calendar month (1-12) for each entry of fetch_prism_daily_tmax(), same order —
+    lets the sampler bin day counts by month without re-deriving the calendar."""
+    return [int(d[:2]) for d in _all_mmdd()]
 
 
 def fetch_prism_monthly(element: str) -> list[Path]:

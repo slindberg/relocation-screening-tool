@@ -309,8 +309,13 @@ CDS_KEY = os.environ.get("CDSAPI_KEY", "") or os.environ.get("CDS_API_KEY", "")
 # --------------------------------------------------------------------------- #
 COMFORT_LOW_F = 50.0
 COMFORT_HIGH_F = 85.0
-HEAT_PENALTY_WEIGHT = 2.0   # days >85°F penalised at 2x days <50°F
-COLD_PENALTY_WEIGHT = 1.0
+# Heat and cold are scored as two INDEPENDENT criteria (score_heat, score_cold) rather
+# than one comfort index, so they can be weighted separately — e.g. a part-year plan
+# that tolerates summer heat because you won't be there. The old built-in 2x heat
+# penalty is therefore gone: that trade-off now belongs to the weighting tool.
+MONTH_ABBR = ("jan", "feb", "mar", "apr", "may", "jun",
+              "jul", "aug", "sep", "oct", "nov", "dec")
+DAYS_IN_MONTH = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)  # PRISM normal year
 
 
 # --------------------------------------------------------------------------- #
@@ -324,22 +329,45 @@ COLD_PENALTY_WEIGHT = 1.0
 # `raw_cols` lists the human-readable raw columns kept alongside the score.
 CRITERIA = [
     {
-        "name": "temperature_comfort",
-        "score_col": "score_temperature_comfort",
+        "name": "heat",
+        "score_col": "score_heat",
         "raw_cols": [
-            ("raw_comfortable_day_fraction", "fraction of days with daytime high 50-85°F"),
             ("raw_days_above_85", "days/yr with daytime high > 85°F"),
-            ("raw_days_below_50", "days/yr with daytime high < 50°F"),
-        ],
+        ] + [(f"raw_days_above_85_{m}", f"days above 85°F in {m.capitalize()} — context")
+             for m in MONTH_ABBR],
         "units": "percentile (0-100)",
         "source": "PRISM daily normals 1991-2020 (tmax, 4km)",
         "source_date": "1991-2020 normals",
-        "score_method": "composite",  # scoring.score_temperature_comfort
+        "score_method": "percentile",
+        "higher_is_better": False,  # fewer hot days scores higher
+        "raw_for_score": "raw_days_above_85",
         "description": (
-            "Daytime-high comfort. comfort_index = comfortable_days "
-            "- 2*hot_days - cold_days (heat penalised 2x cold), then "
-            "percentile-ranked across all towns so both heat and cold extremes "
-            "land low and the distribution is well spread."
+            "Heat load: days per year with a daytime high above 85°F, percentile-ranked "
+            "and inverted so cooler places score higher. Scored INDEPENDENTLY of cold "
+            "(score_cold) so the two can be weighted separately — a part-year plan can "
+            "discount summer heat in a place it would only occupy in winter. The monthly "
+            "raw_days_above_85_<month> columns show *when* the heat falls, which the "
+            "annual total cannot (April heat and July heat count the same here)."
+        ),
+    },
+    {
+        "name": "cold",
+        "score_col": "score_cold",
+        "raw_cols": [
+            ("raw_days_below_50", "days/yr with daytime high < 50°F"),
+        ] + [(f"raw_days_below_50_{m}", f"days below 50°F in {m.capitalize()} — context")
+             for m in MONTH_ABBR],
+        "units": "percentile (0-100)",
+        "source": "PRISM daily normals 1991-2020 (tmax, 4km)",
+        "source_date": "1991-2020 normals",
+        "score_method": "percentile",
+        "higher_is_better": False,  # fewer cold days scores higher
+        "raw_for_score": "raw_days_below_50",
+        "description": (
+            "Cold load: days per year with a daytime high below 50°F, percentile-ranked "
+            "and inverted so milder places score higher. Scored INDEPENDENTLY of heat "
+            "(score_heat). The monthly raw_days_below_50_<month> columns show when the "
+            "cold falls, for judging a part-year occupancy window."
         ),
     },
     {
@@ -651,7 +679,8 @@ ANCHORS = [
     {
         "name": "San Luis Obispo", "state": "CA",
         "high": [
-            ("score_temperature_comfort", False),
+            ("score_heat", False),           # mild marine: almost no days > 85°F
+            ("score_cold", False),           # and almost none < 50°F
             ("score_pressure_diurnal", False),
             ("score_pressure_synoptic", False),
         ],
@@ -674,16 +703,19 @@ ANCHORS = [
     {
         "name": "Phoenix", "state": "AZ",
         "high": [("score_sunlight", False), ("score_dryness", False),
-                 ("score_rainfall", False)],   # desert → little rain
-        "low": [("score_temperature_comfort", False)],
+                 ("score_rainfall", False),    # desert → little rain
+                 ("score_cold", False)],       # desert winter: almost no days < 50°F
+        "low": [("score_heat", False)],        # extreme heat load
     },
     {
         "name": "International Falls", "state": "MN",
-        "high": [],
+        # Splitting heat/cold resolves the old accepted divergence here: on the combined
+        # comfort index the 2x heat penalty crowded the bottom quartile with desert heat,
+        # so this cold-extreme town only reached ~37th pct. On its own axis it is
+        # unambiguously bottom-quartile cold, and top-quartile on heat.
+        "high": [("score_heat", False)],     # essentially no days > 85°F
         "low": [
-            # The spec's 2x heat penalty crowds the bottom quartile with desert heat,
-            # so a cold-extreme (not hot) town lands ~37th pct. Accepted per that rule.
-            ("score_temperature_comfort", "accepted"),
+            ("score_cold", False),           # brutal cold load
             ("score_sunlight", False),
         ],
     },
