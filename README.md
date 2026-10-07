@@ -112,7 +112,8 @@ ranked across all towns. Each town keeps both the raw measured value and the sco
 
 | Criterion | Measures | Source |
 |---|---|---|
-| **Temperature comfort** | Daytime-high comfort. A comfort index of (comfortable days − 2×hot days − cold days), penalizing heat twice as heavily as cold, percentile-ranked. | PRISM 1991–2020 daily maximum-temperature normals (4 km) |
+| **Heat** | Days per year with a daytime high above 85°F; fewer scores higher. Scored independently of cold so the two can be weighted separately — useful for part-year living, where summer heat in a winter-only base may not matter. Per-month counts are kept as raw columns to show *when* the heat falls. | PRISM 1991–2020 daily maximum-temperature normals (4 km) |
+| **Cold** | Days per year with a daytime high below 50°F; fewer scores higher. Independent of heat, with per-month counts kept as raw columns. | PRISM 1991–2020 daily maximum-temperature normals (4 km) |
 | **Sunlight** | Annual solar resource; sunnier scores higher. | Global Solar Atlas annual GHI (Solargis / World Bank) |
 | **Dryness** | Mould-growth propensity from humidity: annual mean relative humidity, inverted so drier air scores higher (RH is the direct driver of surface/airborne mould). | PRISM 1991–2020 dewpoint/temperature normals → annual mean RH (4 km) |
 | **Rainfall** | Wet-climate / liquid-water moisture load: annual precipitation, inverted so a drier climate scores higher. Separate low-weight axis from humidity — and not covered by sunlight (rainfall and sun are nearly uncorrelated across US towns). | PRISM 1991–2020 precipitation normals (4 km) |

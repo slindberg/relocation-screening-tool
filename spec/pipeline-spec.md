@@ -20,7 +20,8 @@ For every criterion, produce **two** columns: `raw_<name>` (human-readable value
 
 | Criterion | Source (format) | Processing | Raw metric | Direction |
 |---|---|---|---|---|
-| Temperature comfort | PRISM daily normals 1991–2020, tmax (4km raster) | Sample at centroid; count days with daytime high in 50–85°F. Penalize days >85°F at 2× the weight of days <50°F (heat is harder to mitigate than cold). Score = **percentile rank** of the weighted comfort index (comfortable − 2·hot − cold). | Comfortable-day fraction; days >85°F; days <50°F | Higher index → higher |
+| Heat | PRISM daily normals 1991–2020, tmax (4km raster) | Sample at centroid; count days/yr with daytime high > 85°F, percentile-ranked and inverted. Per-month counts kept as raws so a summary can show *when* the heat falls. | Days >85°F (annual + per month) | Fewer hot days → higher |
+| Cold | PRISM daily normals 1991–2020, tmax (4km raster) | Count days/yr with daytime high < 50°F, percentile-ranked and inverted. Per-month counts kept as raws. Scored **independently** of heat so the two can be weighted separately (e.g. a part-year plan that tolerates summer heat it won't be present for). | Days <50°F (annual + per month) | Fewer cold days → higher |
 | Dryness / mould (humidity) | PRISM annual mean RH (derived from `tdmean` + `tmean`) (4km) | Percentile rank of annual mean relative humidity, inverted. RH is the direct driver of surface/airborne mould; annual mean dewpoint kept as a context raw. | Annual mean RH (%); mean dewpoint (°F) | Lower RH (drier) → higher |
 | Rainfall | PRISM annual precipitation `ppt` (4km) | Percentile rank of annual precipitation, inverted. Separate low-weight axis: the liquid-water moisture pathway (wet climate / water intrusion), distinct from airborne humidity and **not** captured by sunlight (rainfall vs GHI ≈ 0 rank-correlation). | Annual precip (in/yr) | Lower (drier) → higher |
 | Wildfire (local hazard) | USDA **FSim 270 m** burn probability (RDS-2016-0034-3, `CONUS_BP.tif`) | Sample a small grid of points around the centroid and average the valid (burnable) cells — a town's exposure comes from surrounding wildland. | Burn probability | Lower → higher |
@@ -71,7 +72,7 @@ being seriously considered, not baked into this matrix.
 
 Map each raw metric to 0–100. Default to **percentile rank** across all candidate towns (robust to outliers), or a documented piecewise/composite curve where a real threshold or multi-input blend matters. Record the chosen method per column in the metadata file. Always retain raw values so the tool can show real numbers ("19 days/yr over 85°F"), not just an abstract score.
 
-As built: **temperature comfort** is the percentile rank of the weighted comfort index (`comfortable − 2·hot − cold`) — percentile rather than a linear map, so both heat and cold extremes spread to the bottom and the distribution isn't compressed. **Dryness** is the inverted percentile of annual mean RH, and **rainfall** the inverted percentile of annual precipitation — two independent axes (see the 2026-09-20 changelog). **Lyme** is zero-inflated, so 0-case counties get the top score (100) and positive-incidence counties are inverse-rank-scored among themselves. All other criteria are plain percentile rank.
+As built: **heat** and **cold** are two independent inverted percentile ranks (days >85°F and days <50°F respectively) — no combined comfort index and no built-in heat penalty; the heat-vs-cold trade-off is now a weighting-tool decision (see the 2026-09-23 changelog). **Dryness** is the inverted percentile of annual mean RH, and **rainfall** the inverted percentile of annual precipitation — two independent axes (see the 2026-09-20 changelog). **Lyme** is zero-inflated, so 0-case counties get the top score (100) and positive-incidence counties are inverse-rank-scored among themselves. All other criteria are plain percentile rank.
 
 ## Output
 
@@ -102,20 +103,20 @@ After scoring, verify these named anchor towns land where their climate makes ob
 | Town | Expected HIGH (top quartile) | Expected LOW (bottom quartile) |
 |---|---|---|
 | Olympia, WA | — | sun; dryness; rainfall; pressure-synoptic |
-| San Luis Obispo, CA | temperature comfort; pressure-diurnal; pressure-synoptic | — |
+| San Luis Obispo, CA | heat; cold; pressure-diurnal; pressure-synoptic | — |
 | Santa Fe, NM | sun; dryness; rainfall; Lyme (low risk) | pressure-diurnal |
-| Phoenix, AZ | sun; dryness; rainfall | temperature comfort |
-| International Falls, MN | — | temperature comfort; sun |
+| Phoenix, AZ | sun; dryness; rainfall; cold (few cold days) | heat |
+| International Falls, MN | heat (few hot days) | cold; sun |
 | Hartford, CT | — | Lyme (high risk); dryness |
 
-Coverage: this set exercises every major data layer — sun (Olympia low vs. Phoenix high), dryness (Phoenix high vs. Olympia low), the **heat tail** (Phoenix) and **cold tail** (International Falls) of temperature comfort, both pressure sub-scores (SLO high on both, Olympia synoptic-low, Santa Fe diurnal-low), and the Lyme-incidence county join (Hartford high-risk vs. Santa Fe low-risk).
+Coverage: this set exercises every major data layer — sun (Olympia low vs. Phoenix high), dryness (Phoenix high vs. Olympia low), and the two temperature axes crossed against each other (Phoenix bottom on heat but top on cold; International Falls the exact reverse; SLO top on both), both pressure sub-scores (SLO high on both, Olympia synoptic-low, Santa Fe diurnal-low), and the Lyme-incidence county join (Hartford high-risk vs. Santa Fe low-risk).
 
 **If an anchor fails:** the usual culprits are a coordinate-system mismatch when sampling a raster (points get sampled in the wrong projection and land in the ocean or the next state over), a units error, or a bad county-FIPS join. Investigate and re-run before trusting any rankings — do not ship the matrix with a failing anchor left unexplained.
 
 **Accepted divergences (investigated, documented, approved — reported by the smoke test as `<accepted>`, not failures):**
 
 - **Olympia, WA — pressure-synoptic.** ERA5 std-of-daily-mean MSLP measures swing *amplitude*; maritime air moderates the PNW's amplitude though fronts are frequent, so Olympia ranks mid (~57th pct). The largest-amplitude swings are the continental north.
-- **International Falls, MN — temperature comfort.** The 2× heat penalty crowds the bottom quartile with desert heat, so a cold-extreme (not hot) town lands ~37th pct — the honest result of that weighting.
+- ~~**International Falls, MN — temperature comfort.**~~ *Resolved 2026-09-23 by splitting heat and cold.* On the combined index the 2× heat penalty crowded the bottom quartile with desert heat, so this cold-extreme town only reached ~37th pct; on its own `score_cold` axis it is now unambiguously bottom-quartile (and top-quartile on `score_heat`).
 - **Hartford, CT — dryness.** On annual mean RH the Northeast is only ~mid-pack nationally; the most humid (lowest-dryness) places are the marine PNW / Pacific coast / Gulf / Appalachia. (Hartford still ranks clearly wet on the separate rainfall axis.)
 - **Santa Fe, NM — Lyme.** Scores ~85 (very low risk). >50% of US counties report zero Lyme (all scoring 100), so q75=100 and strict "top quartile" requires zero cases; non-endemic NM still reports a case or two, so Santa Fe sits just below the zero mass.
 
@@ -132,14 +133,14 @@ Changes made and approved during implementation, captured here so the spec is th
 
 1. **Pressure → ERA5.** Removed the PRISM temperature/continentality proxies; both sub-scores are now measured directly from ERA5 hourly MSLP (diurnal = mean daily max−min; synoptic = std of daily means). Reason: temperature is a poor proxy for the health-relevant frontal-pressure signal, especially in maritime storm tracks.
 2. **Dryness → rainfall + humidity composite** (was annual mean dewpoint). `0.5·pct(annual precip) + 0.5·pct(annual mean RH)`, inverted; dewpoint kept as a raw. Reason: dewpoint (absolute humidity) is temperature-confounded and conflates cold-dry with arid-dry; mould propensity tracks year-round moisture, which precip + RH capture. (Annual RH, not warm-season — the PNW's mould risk is year-round dampness, not summer mugginess.)
-3. **Temperature comfort → percentile rank** of the weighted index (was a linear map). Keeps the 2× heat penalty but spreads the distribution and puts both extremes low.
+3. **Temperature comfort → percentile rank** of the weighted index (was a linear map). Keeps the 2× heat penalty but spreads the distribution and puts both extremes low. *(Superseded 2026-09-23: the combined index and its 2× penalty were replaced by independent heat and cold scores — see below.)*
 4. **Wildfire → FSim 270 m burn probability** (RDS-2016-0034-3, 1.5 GB) instead of the 30 m Wildfire-Risk-to-Communities raster (RDS-2020-0016, 32 GB) — identical for a centroid screen; neighborhood point-sampled to handle nodata over developed land.
 5. **Sunlight → Global Solar Atlas GHI raster** (the NREL per-point API doesn't scale to 31k and was unreliable); NREL kept as a fallback.
 6. **Lyme** (renamed from "ticks") is scored on Lyme-disease **incidence rate**: CDC reported Lyme cases by county (2023) ÷ 2020 county population (cases/100k). Zero-inflated, so 0-case counties get the top score and positive-incidence counties are inverse-rank-scored among themselves. Tick establishment is retained only as a context raw. The rate denominator is ACS 2023 5-year county population (current geography), not the 2020 decennial, so it aligns with TIGER 2023 and the CDC 2023 file on Connecticut's planning regions. (Approved 2026-06-16: the user cares about Lyme incidence / Lyme-carrying ticks, not ticks per se.)
 7. **PRISM** is read from the v2 data directory (`data.prism.oregonstate.edu`); the old NACSE web-service endpoints were retired in 2024.
 8. Four **accepted anchor divergences** documented above (Olympia synoptic, International Falls comfort, Hartford dryness, Santa Fe Lyme) — metric-vs-anchor tensions, not bugs; metrics left unmanipulated.
 
-Synoptic was kept as the spec's std-of-daily-mean (not switched to a frequency metric), and temperature comfort kept the 2× heat penalty — both approved as-is.
+Synoptic was kept as the spec's std-of-daily-mean (not switched to a frequency metric), and temperature comfort kept the 2× heat penalty — both approved as-is at the time. *(The 2× heat penalty was later removed — see the 2026-09-23 changelog; synoptic is unchanged.)*
 
 ### Incremental additions (2026-06-17)
 
@@ -197,5 +198,18 @@ The **12.5 km bandwidth** gives an effective neighbourhood of ~25 km (a neighbou
 Effect (synthetic ridge check, towns 40 km from a 13M metro): the town behind the ridge sees its effective distance to the metro go 39.4 → 62.2 km and its weighted nearby population collapse to essentially its own 1,000 — level with a genuinely remote town (1,002) — while a **flat** metro-edge town at the same straight-line distance stays clearly non-isolated at 161,500, carried by its own local cluster of neighbours. Plain distance-decay without terrain could not make this distinction (it lowered both equally), which is why terrain was chosen over simply shrinking the radius.
 
 Note the resulting division of labour between the two halves: with a ~25 km neighbourhood the population term now measures **local** density, while **regional** access to a metro is carried almost entirely by the effective-distance-to-city term (which still sees LA at ~39 km for the flat town). A town far from its neighbours but close to a metro is therefore flagged by the city half rather than the population half.
+
+### Temperature comfort → independent heat and cold scores (2026-09-23)
+
+The combined comfort index assumed **year-round occupancy**: it folded hot days, cold days and the 2× heat penalty into a single number, so a place could not be evaluated for part-year living (e.g. Nov–May in the desert, summers in the north). It is replaced by two independent criteria:
+
+- **`score_heat`** — days/yr with daytime high > 85°F, inverted percentile.
+- **`score_cold`** — days/yr with daytime high < 50°F, inverted percentile.
+
+The built-in **2× heat penalty is removed**: weighting heat against cold is now a decision for the weighting tool, which is the point — a part-year plan can simply weight heat down for a winter-only base. `raw_comfortable_day_fraction` was **dropped** rather than kept as context: the three bands partition the year, so it is exactly `(365 − hot − cold)/365` and carries no information beyond the two scored columns (verified zero deviation across all 31,519 towns) — and its name perpetuated the "comfort" framing being retired.
+
+**Monthly breakdown.** Because the annual total cannot say *when* out-of-range days fall — Phoenix averages ~85°F highs in April and ~95°F in May, so a Nov–May stay still meets roughly 40–45 of its ~175 hot days — the sampler now also emits `raw_days_above_85_<month>` and `raw_days_below_50_<month>` (24 context columns). These let a summary show the seasonal shape of a town's heat and cold, which is what actually decides a part-year window. They cost no extra I/O: the sampler already reads all 365 daily normals, which are keyed `MMDD`, so binning by month is free.
+
+Seasonal *scores* (a Nov–May comfort score, etc.) were considered and deliberately **not** adopted — the decision was to keep the scored axes season-agnostic and expose the monthly data for interpretation instead. This also **resolved an accepted divergence**: International Falls previously landed ~37th pct on the combined index because the 2× heat penalty crowded the bottom with desert heat; on its own cold axis it is now unambiguously bottom-quartile, and top-quartile on heat. (Still dry-bulb `tmax` only — humidity-adjusted apparent temperature is deferred.) Temperature stage renamed `temperature_comfort` → `temperature` and bumped to v2, so it recomputes on the next run.
 
 New raws: `raw_weighted_pop_nearby`, `raw_eff_dist_to_city_km` (both scored); `raw_dist_to_city_km` (straight-line) and `raw_place_density_per_sqmi` kept as context. Caveats: the penalty follows the straight line, so it can overstate a barrier a road skirts easily and understate a winding route — it is a travel-friction *proxy*, not a routed drive time (OSRM remains the higher-fidelity option). Set `ISOLATION_TERRAIN=0` to fall back to plain distance; the stage degrades gracefully to straight-line if the DEM grid can't be built. Isolation stage bumped to v2, so it recomputes on the next run.

@@ -35,10 +35,12 @@ from data_pipeline import cache, scoring, smoke
 # when the stage's *computation* changes.
 def stage_specs() -> list[dict]:
     return [
-        {"name": "temperature_comfort",
-         "out": ["raw_comfortable_day_fraction", "raw_days_above_85", "raw_days_below_50"],
+        {"name": "temperature",
+         "out": (["raw_days_above_85", "raw_days_below_50"]
+                 + [f"raw_days_above_85_{m}" for m in C.MONTH_ABBR]
+                 + [f"raw_days_below_50_{m}" for m in C.MONTH_ABBR]),
          "deps": [C.PRISM_RES, C.PRISM_REGION, C.COMFORT_LOW_F, C.COMFORT_HIGH_F],
-         "version": 1},
+         "version": 2},  # v2: per-month hot/cold counts; feeds score_heat + score_cold
         {"name": "dryness",
          "out": ["raw_annual_precip_in", "raw_mean_relative_humidity_pct", "raw_mean_dewpoint_f"],
          "deps": [C.PRISM_RES, C.PRISM_REGION],
@@ -147,7 +149,7 @@ def build_real_matrix(anchors_only: bool = False, force: set[str] | None = None)
     base = df0
 
     fns = {
-        "temperature_comfort": sampling.temperature_comfort,
+        "temperature": sampling.temperature_days,
         "dryness": sampling.dryness,
         "pressure": era5.sample_pressure,
         "wildfire": sampling.wildfire,

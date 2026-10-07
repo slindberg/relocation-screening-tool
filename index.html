@@ -57,6 +57,11 @@ canvas { display:block; max-width:100%; }
 .detlinks { margin-top:10px; display:flex; gap:8px; }
 .detlinks a { font-size:12px; font-weight:600; color:#1a56db; text-decoration:none; border:1px solid #c3d0ee; border-radius:6px; padding:4px 10px; background:#fff; }
 .detlinks a:hover { background:#eef3ff; }
+.spark { display:inline-block; margin-top:4px; }
+.spark .sbars { display:flex; align-items:flex-end; gap:2px; height:14px; }
+.spark .sbars i { width:7px; min-height:1px; background:#a8bccd; border-radius:1px; display:block; }
+.spark .slabels { display:flex; gap:2px; margin-top:1px; }
+.spark .slabels span { width:7px; text-align:center; font-size:8px; line-height:1; color:#9aa1ab; }
 .dtl .subv { font-size:11px; font-style:italic; color:#6b7280; margin-top:2px; }
 .dtl .subv.pass { color:#0a7d33; } .dtl .subv.fail { color:#c0392b; }
 input[type=range]{ width:100%; } input[type=number]{ width:70px; padding:3px 5px; border:1px solid #cfd4da; border-radius:4px; }
@@ -133,10 +138,10 @@ const STATE_NAMES={AL:'Alabama',AK:'Alaska',AZ:'Arizona',AR:'Arkansas',CA:'Calif
 const ranges={}; let MB=null, lastComposite=null, lastOrder=null;
 const ANCHORS=[
  {id:'5351300',name:'Olympia, WA',exp:[['score_sunlight','LOW'],['score_dryness','LOW'],['score_pressure_synoptic','LOW']]},
- {id:'0668154',name:'San Luis Obispo, CA',exp:[['score_temperature_comfort','HIGH'],['score_pressure_diurnal','HIGH'],['score_pressure_synoptic','HIGH']]},
+ {id:'0668154',name:'San Luis Obispo, CA',exp:[['score_heat','HIGH'],['score_cold','HIGH'],['score_pressure_diurnal','HIGH'],['score_pressure_synoptic','HIGH']]},
  {id:'3570500',name:'Santa Fe, NM',exp:[['score_sunlight','HIGH'],['score_dryness','HIGH'],['score_lyme','HIGH'],['score_pressure_diurnal','LOW']]},
- {id:'0455000',name:'Phoenix, AZ',exp:[['score_sunlight','HIGH'],['score_dryness','HIGH'],['score_temperature_comfort','LOW']]},
- {id:'2731040',name:'International Falls, MN',exp:[['score_temperature_comfort','LOW'],['score_sunlight','LOW']]},
+ {id:'0455000',name:'Phoenix, AZ',exp:[['score_sunlight','HIGH'],['score_dryness','HIGH'],['score_heat','LOW']]},
+ {id:'2731040',name:'International Falls, MN',exp:[['score_cold','LOW'],['score_sunlight','LOW']]},
  {id:'0937000',name:'Hartford, CT',exp:[['score_lyme','LOW'],['score_dryness','LOW']]},
 ];
 const PHASE2=['pollen','nature','isolation','airport','amenities'];
@@ -171,9 +176,17 @@ async function boot(){
   for(const c of scoreCols){const v=[];for(const o of rows){const x=o.s[c];if(x!=null&&!Number.isNaN(x))v.push(x);}v.sort((a,b)=>a-b);
     const q=p=>{if(!v.length)return null;const k=(v.length-1)*p,f=Math.floor(k),cc=Math.ceil(k);return f===cc?v[f]:v[f]*(cc-k)+v[cc]*(k-f);};
     ranges[c]={min:v[0],max:v[v.length-1],med:q(.5),p25:q(.25),p75:q(.75),nulls:rows.length-v.length,n:v.length};}
+  const MON=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
   const criteria=scoreCols.map(c=>{const md=meta[c]||{};
-    const raws=(rawGroups[c]||[]).filter(rc=>rc in li).map(rc=>({col:rc,desc:(meta[rc]||{}).description||prettify(rc),units:(meta[rc]||{}).units||''}));
-    return {key:c.replace(/^score_/,''),scoreCol:c,label:prettify(c),desc:md.description||'',units:md.units||'percentile (0-100)',source:md.source||'',raws,enabled:true,weight:5,floor:null};});
+    // split per-month raw columns (…_jan … _dec) out of the raw list; they render as a sparkline
+    const raws=[],months=[];
+    for(const rc of (rawGroups[c]||[]).filter(x=>x in li)){
+      const m=rc.match(/_(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)$/i);
+      if(m) months.push({col:rc,mon:m[1][0].toUpperCase()+m[1].slice(1).toLowerCase(),i:MON.indexOf(m[1].toLowerCase())});
+      else raws.push({col:rc,desc:(meta[rc]||{}).description||prettify(rc),units:(meta[rc]||{}).units||''});
+    }
+    months.sort((a,b)=>a.i-b.i);
+    return {key:c.replace(/^score_/,''),scoreCol:c,label:prettify(c),desc:md.description||'',units:md.units||'percentile (0-100)',source:md.source||'',raws,months,enabled:true,weight:5,floor:null};});
   DATA={li,scoreCols,criteria,meta,rows};
   // restore last session (weights/toggles/floors + view settings) from localStorage
   const _sess=loadSession();
@@ -226,7 +239,7 @@ function drawBasemap(ctx,px,py,z,tx,ty,s){
   ctx.strokeStyle='rgba(120,128,140,0.16)';ctx.lineWidth=0.55*dpr;for(const ring of BM.states){trace(ring);ctx.stroke();}
   if(BM.natl){ctx.strokeStyle='rgba(120,140,162,0.5)';ctx.lineWidth=Math.max(0.4,0.5*Math.min(2.2,Math.sqrt(z)))*dpr;for(const ln of BM.natl){trace(ln);ctx.stroke();}}
 }
-function hitTest(canvas,mx,my,pf=0){let best=null,bd=120;const v=canvas._view||{z:1,tx:0,ty:0},rows=DATA.rows;for(let i=0;i<rows.length;i++){const o=rows[i];if(curState&&o.state!==curState)continue;if(o.lat<24||o.lat>50||o.lon<-125||o.lon>-66)continue;if(pf&&(o.pop||0)<pf)continue;if(!passesFloors(o))continue;const[X,Y]=albers(o.lon,o.lat),cx=canvas._px(X)*v.z+v.tx,cy=canvas._py(Y)*v.z+v.ty,d=(cx-mx)**2+(cy-my)**2;if(d<bd){bd=d;best=o;}}return best;}
+function hitTest(canvas,mx,my){let best=null,bd=120;const v=canvas._view||{z:1,tx:0,ty:0},rows=DATA.rows;for(let i=0;i<rows.length;i++){const o=rows[i];if(curState&&o.state!==curState)continue;if(o.lat<24||o.lat>50||o.lon<-125||o.lon>-66)continue;if(!passesTownFilters(o))continue;if(!passesFloors(o))continue;const[X,Y]=albers(o.lon,o.lat),cx=canvas._px(X)*v.z+v.tx,cy=canvas._py(Y)*v.z+v.ty,d=(cx-mx)**2+(cy-my)**2;if(d<bd){bd=d;best=o;}}return best;}
 function drawHist(canvas,col){const ctx=canvas.getContext('2d'),W=canvas.width,H=canvas.height;ctx.clearRect(0,0,W,H);const bins=new Array(20).fill(0);for(const o of DATA.rows){const v=o.s[col];if(v==null||Number.isNaN(v))continue;let b=Math.floor(v/5);if(b>19)b=19;if(b<0)b=0;bins[b]++;}const mx=Math.max(...bins),bw=W/20;for(let i=0;i<20;i++){const h=mx?bins[i]/mx*(H-2):0;ctx.fillStyle=color(i/19);ctx.fillRect(i*bw+1,H-h,bw-2,h);}}
 
 function buildQuality(){
@@ -297,6 +310,7 @@ function showCriterionInfo(c){const d=$('#detail');if(!d)return;const md=(DATA.m
   if(md.normalization_method)h+=`<tr><td class="small muted" style="vertical-align:top">Scoring</td><td class="small">${md.normalization_method}</td></tr>`;
   h+='</tbody></table>';
   if(c.raws&&c.raws.length){h+='<div class="small muted" style="margin-top:8px;font-weight:600">Raw inputs</div><table class="dtl"><tbody>';for(const rc of c.raws){h+=`<tr><td class="small"><b>${prettify(rc.col)}</b>${rc.units?' <span class="muted">('+rc.units+')</span>':''}${rc.desc?'<div class="small muted">'+rc.desc+'</div>':''}</td></tr>`;}h+='</tbody></table>';}
+  if(c.months&&c.months.length)h+=`<div class="small muted" style="margin-top:6px">Plus a per-month breakdown (${c.months.length} columns, Jan–Dec), shown as a sparkline in the town detail.</div>`;
   h+='<div class="small muted" style="margin-top:8px">Hover a criterion to read about it; the map previews that layer.</div>';
   d.innerHTML=h;}
 
@@ -324,10 +338,17 @@ function buildExplore(){
     cp.append(row);
   }
   left.append(cp);
-  const opt=el('div',{class:'card'});opt.append(el('h3',{},'Display & export'));
-  const pf=el('input',{type:'number',min:'0',placeholder:'0',style:'width:90px'});pf.addEventListener('input',recompute);
+  // ---- Filters (town-level gates, separate from criteria floors) ----
+  const flt=el('div',{class:'card'});flt.append(el('h3',{},'Filters'));
+  const pf=el('input',{type:'number',min:'0',placeholder:'any',id:'popFloor',style:'width:84px'});pf.addEventListener('input',recompute);
   if(DATA._sess&&DATA._sess.pop) pf.value=DATA._sess.pop;
-  opt.append(el('div',{class:'flex',style:'margin-bottom:6px'},el('span',{class:'small'},'Min population:'),pf,el('span',{class:'small muted'},'(thins tiny CDPs)')));
+  flt.append(el('div',{class:'flex',style:'justify-content:space-between;margin-bottom:5px'},el('span',{class:'small'},'Min population'),pf));
+  const ef=el('input',{type:'number',min:'0',placeholder:'any',id:'elevMax',style:'width:84px'});ef.addEventListener('input',recompute);
+  if(DATA._sess&&DATA._sess.elev) ef.value=DATA._sess.elev;
+  flt.append(el('div',{class:'flex',style:'justify-content:space-between'},el('span',{class:'small'},'Max elevation (ft)'),ef));
+  flt.append(el('div',{class:'small muted',style:'margin-top:5px'},'Towns outside these are dropped from the map, ranking and export.'));
+  left.append(flt);
+  const opt=el('div',{class:'card'});opt.append(el('h3',{},'Display & export'));
   const topN=el('input',{type:'number',min:'1',value:String((DATA._sess&&DATA._sess.topN)||100),id:'topN',style:'width:80px'});
   topN.addEventListener('input',()=>{renderResults();saveSession();});
   opt.append(el('div',{class:'flex',style:'margin-bottom:6px'},el('span',{class:'small'},'Show / export top:'),topN,el('button',{class:'btn sec',onclick:exportCSV},'Export CSV')));
@@ -356,9 +377,9 @@ function buildExplore(){
   mapCard.append(el('div',{style:'position:relative'},legend(),el('span',{class:'small muted',style:'position:absolute;right:2px;top:0'},'scroll = zoom · drag = pan')));
   const cv=el('canvas',{width:960,height:560,id:'compmap'});cv.style.width='100%';cv.style.cursor='grab';
   cv.addEventListener('mousedown',ev=>{mapDrag={x:ev.clientX,y:ev.clientY};mapMoved=false;cv.style.cursor='grabbing';});
-  cv.addEventListener('click',ev=>{if(mapMoved){mapMoved=false;return;}const r=cv.getBoundingClientRect(),mx=(ev.clientX-r.left)*cv.width/r.width,my=(ev.clientY-r.top)*cv.height/r.height,o=hitTest(cv,mx,my,popFloor());if(o){selectedId=o.id;renderResults();redrawCompMap();openDetail();}});
+  cv.addEventListener('click',ev=>{if(mapMoved){mapMoved=false;return;}const r=cv.getBoundingClientRect(),mx=(ev.clientX-r.left)*cv.width/r.width,my=(ev.clientY-r.top)*cv.height/r.height,o=hitTest(cv,mx,my);if(o){selectedId=o.id;renderResults();redrawCompMap();openDetail();}});
   cv.addEventListener('wheel',ev=>{ev.preventDefault();const r=cv.getBoundingClientRect(),mx=(ev.clientX-r.left)*cv.width/r.width,my=(ev.clientY-r.top)*cv.height/r.height;let dy=ev.deltaY;if(ev.deltaMode===1)dy*=16;else if(ev.deltaMode===2)dy*=800;dy=Math.max(-60,Math.min(60,dy));const f=Math.exp(-dy*0.002),nz=Math.max(1,Math.min(30,mapZoom*f)),bx=(mx-mapTX)/mapZoom,by=(my-mapTY)/mapZoom;mapTX=mx-bx*nz;mapTY=my-by*nz;mapZoom=nz;if(mapZoom<=1.001){mapZoom=1;mapTX=0;mapTY=0;}redrawCompMap();},{passive:false});
-  cv.addEventListener('mousemove',ev=>{if(mapDrag)return;const r=cv.getBoundingClientRect(),mx=(ev.clientX-r.left)*cv.width/r.width,my=(ev.clientY-r.top)*cv.height/r.height,o=hitTest(cv,mx,my,popFloor());const hv=$('#maphover');if(!hv)return;if(o){const c=lastComposite?lastComposite[o.id]:null;hv.textContent=o.name+', '+o.state+(c!=null?' · composite '+fmt(c,1):'');hv.style.display='block';cv.style.cursor='pointer';}else{hv.style.display='none';cv.style.cursor='grab';}});
+  cv.addEventListener('mousemove',ev=>{if(mapDrag)return;const r=cv.getBoundingClientRect(),mx=(ev.clientX-r.left)*cv.width/r.width,my=(ev.clientY-r.top)*cv.height/r.height,o=hitTest(cv,mx,my);const hv=$('#maphover');if(!hv)return;if(o){const c=lastComposite?lastComposite[o.id]:null;hv.textContent=o.name+', '+o.state+(c!=null?' · composite '+fmt(c,1):'');hv.style.display='block';cv.style.cursor='pointer';}else{hv.style.display='none';cv.style.cursor='grab';}});
   cv.addEventListener('mouseleave',()=>{const hv=$('#maphover');if(hv)hv.style.display='none';});
   const mapWrap=el('div',{style:'position:relative'});
   const hover=el('div',{id:'maphover',style:'position:absolute;left:0;right:0;bottom:0;pointer-events:none;text-align:center;padding:5px 0;font-size:13px;font-weight:600;color:#1d2129;background:linear-gradient(to top,rgba(255,255,255,0.96),rgba(255,255,255,0));display:none'});
@@ -372,15 +393,18 @@ function buildExplore(){
   rightcol.append(detCard);layout.append(rightcol);
   root.append(layout);refreshProfileList();requestAnimationFrame(sizeCompMap);
 }
-function popFloor(){const i=$('#explore')&&$('#explore').querySelector('input[placeholder="0"]');return i&&i.value?+i.value:0;}
+function popFloor(){const i=$('#popFloor');return i&&i.value!==''?+i.value:0;}
+function elevMax(){const i=$('#elevMax');return i&&i.value!==''?+i.value:0;}
+// town-level filters (min population / max elevation), separate from per-criterion floors
+function passesTownFilters(o){const pf=popFloor();if(pf&&(o.pop||0)<pf)return false;const em=elevMax();if(em&&(o.elev==null||o.elev>em))return false;return true;}
 function getTopN(){const i=$('#topN');return i&&+i.value>0?+i.value:100;}
 function setAllCriteria(v){for(const ctl of critControls){ctl.c.enabled=v;ctl.tog.checked=v;const row=ctl.tog.closest('.crit-row');if(row)row.classList.toggle('off',!v);}recompute();}
-function previewLayer(c){const cv=$('#compmap');if(!cv)return;const pf=popFloor();const hv=$('#maphover');if(hv){hv.textContent='Layer preview: '+c.label;hv.style.display='block';}drawMap(cv,o=>{if(pf&&(o.pop||0)<pf)return false;const v=o.s[c.scoreCol];return v==null?null:v/100;},{r:1.3,popFloor:pf,z:mapZoom,tx:mapTX,ty:mapTY,basemap:true,state:curState});}
+function previewLayer(c){const cv=$('#compmap');if(!cv)return;const hv=$('#maphover');if(hv){hv.textContent='Layer preview: '+c.label;hv.style.display='block';}drawMap(cv,o=>{if(!passesTownFilters(o))return false;const v=o.s[c.scoreCol];return v==null?null:v/100;},{r:1.3,z:mapZoom,tx:mapTX,ty:mapTY,basemap:true,state:curState});}
 function currentList(){if(!lastOrder)return[];return curState?lastOrder.filter(x=>x[0].state===curState):lastOrder;}
 function compositeFor(o){let num=0,den=0;for(const c of DATA.criteria){if(!c.enabled||c.weight<=0)continue;const v=o.s[c.scoreCol];if(v==null||Number.isNaN(v))continue;num+=c.weight*v;den+=c.weight;}return den>0?num/den:null;}
 function passesFloors(o){for(const c of DATA.criteria){if(!c.enabled||c.floor==null)continue;const v=o.s[c.scoreCol];if(v==null||v<c.floor)return false;}return true;}
-function recompute(){if(!DATA)return;const pf=popFloor();const arr=[];lastComposite={};for(const o of DATA.rows){const comp=compositeFor(o);lastComposite[o.id]=comp;if(comp!=null&&passesFloors(o)&&(!pf||(o.pop||0)>=pf))arr.push([o,comp]);}arr.sort((a,b)=>b[1]-a[1]);lastOrder=arr;renderResults();redrawCompMap();if(selectedId)renderDetail();saveSession();}
-function redrawCompMap(){const cv=$('#compmap');if(!cv)return;const pf=popFloor();drawMap(cv,o=>{if(pf&&(o.pop||0)<pf)return false;if(!passesFloors(o))return false;const c=lastComposite?lastComposite[o.id]:compositeFor(o);return c==null?null:c/100;},{r:1.3,popFloor:pf,z:mapZoom,tx:mapTX,ty:mapTY,basemap:true,state:curState});}
+function recompute(){if(!DATA)return;const arr=[];lastComposite={};for(const o of DATA.rows){const comp=compositeFor(o);lastComposite[o.id]=comp;if(comp!=null&&passesFloors(o)&&passesTownFilters(o))arr.push([o,comp]);}arr.sort((a,b)=>b[1]-a[1]);lastOrder=arr;renderResults();redrawCompMap();if(selectedId)renderDetail();saveSession();}
+function redrawCompMap(){const cv=$('#compmap');if(!cv)return;drawMap(cv,o=>{if(!passesTownFilters(o))return false;if(!passesFloors(o))return false;const c=lastComposite?lastComposite[o.id]:compositeFor(o);return c==null?null:c/100;},{r:1.3,z:mapZoom,tx:mapTX,ty:mapTY,basemap:true,state:curState});}
 function resetZoom(){mapZoom=1;mapTX=0;mapTY=0;redrawCompMap();}
 function sizeCompMap(){const cv=$('#compmap');if(!cv||cv.offsetParent===null)return;if(!MB)MB=computeMapBounds();const cssW=cv.clientWidth||(cv.parentElement&&cv.parentElement.clientWidth)||900;const aspect=(MB.maxx-MB.minx)/(MB.maxy-MB.miny)||1.6;const cssH=Math.max(220,cssW/aspect);const dpr=Math.min(2,window.devicePixelRatio||1);cv.style.height=cssH+'px';cv.width=Math.round(cssW*dpr);cv.height=Math.round(cssH*dpr);redrawCompMap();}
 function applyStateFilter(){const inp=$('#stateFilter');if(!inp)return;const t=inp.value.trim().toLowerCase();let code='';if(t){const S=(DATA._states||[]);for(const s of S){const nm=(STATE_NAMES[s]||s).toLowerCase();if(s.toLowerCase()===t||nm===t){code=s;break;}}if(!code)for(const s of S){const nm=(STATE_NAMES[s]||s).toLowerCase();if(nm.startsWith(t)||s.toLowerCase().startsWith(t)){code=s;break;}}}curState=code;selectedId=null;fitState();renderResults();redrawCompMap();saveSession();}
@@ -427,9 +451,17 @@ function renderDetail(){const d=$('#detail');if(!d)return;const o=DATA.rows.find
   </div>`;
   h+='<table class="dtl"><thead><tr><th>Criterion</th><th style="text-align:right">Score</th><th style="text-align:right">Contrib</th></tr></thead><tbody>';
   for(const c of DATA.criteria){const v=o.s[c.scoreCol];
-    let rawTxt='—';if(c.raws.length){const multi=c.raws.length>1;rawTxt=c.raws.map(rc=>{const rv=o._g[DATA.li[rc.col]];if(rv==null||rv==='')return null;const num=+rv;const disp=Number.isNaN(num)?rv:fmt(num,Math.abs(num)<10?2:0);let u=(rc.units&&!/Y\/N/.test(rc.units))?rc.units.split('(')[0].trim():'';if(/^(fraction|code)$/i.test(u))u='';u=u.replace(/^days\/yr$/i,'d/yr');const lab=multi?rawLabel(rc.col,u):'';if(lab&&u){const head=u.toLowerCase().split(/[\/\s]/)[0];const syn=({persons:['pop','population','people'],cases:['case','cases']})[head]||[];const words=lab.toLowerCase().split(/[^a-z0-9]+/);if(words.includes(head)||syn.some(w=>words.includes(w)))u='';}const nosp=(u==='%'||u==='°F'||u==='°C');const val=disp+(u?(nosp?u:' '+u):'');return (lab?lab+' ':'')+val;}).filter(Boolean).join(multi?'<br>':', ')||'—';}
+    let rawTxt='—';if(c.raws.length){const multi=c.raws.length>1;rawTxt=c.raws.map(rc=>{const rv=o._g[DATA.li[rc.col]];if(rv==null||rv==='')return null;const num=+rv;const disp=Number.isNaN(num)?rv:fmt(num,Math.abs(num)<10?2:0);let u=(rc.units&&!/Y\/N/.test(rc.units))?rc.units.split('(')[0].trim():'';if(/^(fraction|code)$/i.test(u))u='';u=u.replace(/^days\/yr$/i,'d/yr');const lab=(multi||/^raw_days_(above|below)_/.test(rc.col))?rawLabel(rc.col,u):'';if(lab&&u){const head=u.toLowerCase().split(/[\/\s]/)[0];const syn=({persons:['pop','population','people'],cases:['case','cases']})[head]||[];const words=lab.toLowerCase().split(/[^a-z0-9]+/);if(words.includes(head)||syn.some(w=>words.includes(w)))u='';}const nosp=(u==='%'||u==='°F'||u==='°C');const val=disp+(u?(nosp?u:' '+u):'');return (lab?lab+' ':'')+val;}).filter(Boolean).join(multi?'<br>':', ')||'—';}
     const contrib=(c.enabled&&c.weight>0&&v!=null&&den>0)?(c.weight*v/den):null;
-    h+=`<tr style="${c.enabled?'':'opacity:.5'}"><td><b>${c.label}</b><div class="small muted">${rawTxt}</div></td>
+    let spark='';
+    if(c.months&&c.months.length){
+      const mv=c.months.map(m=>{const rv=o._g[DATA.li[m.col]];if(rv==null||rv==='')return null;const n=+rv;return Number.isNaN(n)?null:n;});
+      if(mv.some(x=>x!=null&&x>0))
+        spark='<div class="spark" title="days per month"><div class="sbars">'
+          +mv.map((x,i)=>`<i style="height:${Math.max(1,Math.round((x||0)/31*14))}px" title="${c.months[i].mon} ${x==null?'—':fmt(x,0)} d"></i>`).join('')
+          +'</div><div class="slabels">'+c.months.map(m=>`<span>${m.mon[0]}</span>`).join('')+'</div></div>';
+    }
+    h+=`<tr style="${c.enabled?'':'opacity:.5'}"><td><b>${c.label}</b><div class="small muted">${rawTxt}</div>${spark}</td>
       <td style="text-align:right;vertical-align:top"><span style="color:${color((v||0)/100)};font-weight:600">${fmt(v,1)}</span>${c.floor!=null?`<div class="subv ${v!=null&&v<c.floor?'fail':''}">floor ${c.floor}</div>`:''}</td>
       <td style="text-align:right;vertical-align:top">${contrib!=null?fmt(contrib,1):'—'}<div class="bar" style="margin-top:3px;margin-left:auto;width:${contrib!=null?Math.max(2,Math.min(90,Math.round(contrib*1.2))):0}px;background:${color((v||0)/100)}"></div><div class="subv">${c.enabled?'wt '+c.weight:'off'}</div></td></tr>`;}
   h+='</tbody></table><div class="small muted" style="margin-top:6px">Contribution = weight × score ÷ Σ weights; enabled contributions sum to the composite.</div>';
@@ -442,7 +474,7 @@ function exportCSV(){if(!lastOrder)return;const N=getTopN(),top=currentList().sl
   const blob=new Blob([lines.join('\n')],{type:'text/csv'}),a=el('a',{href:URL.createObjectURL(blob),download:'shortlist_top'+top.length+'.csv'});document.body.append(a);a.click();a.remove();}
 const csvq=s=>{s=String(s==null?'':s);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
 const SKEY='reloc_session_v1';
-function saveSession(){try{if(!DATA)return;const s={crit:{},pop:popFloor(),topN:getTopN(),state:curState,basemap:showBasemap};DATA.criteria.forEach(c=>s.crit[c.key]={enabled:c.enabled,weight:c.weight,floor:c.floor});localStorage.setItem(SKEY,JSON.stringify(s));}catch(e){}}
+function saveSession(){try{if(!DATA)return;const s={crit:{},pop:popFloor(),elev:elevMax(),topN:getTopN(),state:curState,basemap:showBasemap};DATA.criteria.forEach(c=>s.crit[c.key]={enabled:c.enabled,weight:c.weight,floor:c.floor});localStorage.setItem(SKEY,JSON.stringify(s));}catch(e){}}
 function loadSession(){try{return JSON.parse(localStorage.getItem(SKEY)||'null');}catch(e){return null;}}
 const PKEY='reloc_weight_profiles_v1';
 function getProfiles(){try{return JSON.parse(localStorage.getItem(PKEY)||'{}');}catch(e){return{};}}
