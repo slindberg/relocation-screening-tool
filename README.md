@@ -33,11 +33,14 @@ index.html                         the weighting / visualization web app
 assets/                            basemap data fetched by the app (coastline, borders, rivers, relief)
 output/                            generated scoring matrix + metadata (what the app reads)
 tools/generate_candidate_data.py   pipeline orchestrator / CLI
+tools/publish_data.sh              regenerates the data and publishes it for the live site
 tools/build_basemap.py             regenerates the app's basemap assets
 tools/diagnose.py                  data-source connectivity probe
 data_pipeline/                     pipeline modules (fetch, places, sampling, scoring, …)
 spec/                              pipeline + app design specs
 requirements.txt                   Python dependencies
+DATA_VERSION                       the data release the live site serves
+.github/workflows/pages.yml        deploys the site to GitHub Pages
 ```
 
 ## Generating the data
@@ -104,6 +107,26 @@ changes to the app. To update what the app shows, re-run the pipeline and refres
 
 The basemap files (`assets/basemap.json`, `assets/relief.png`) are generated separately by
 `tools/build_basemap.py` and only need rebuilding if the geography layers change.
+
+## Publishing the site
+
+The site is deployed to GitHub Pages by `.github/workflows/pages.yml` on every push to
+`main` that touches `index.html`, `assets/`, or `DATA_VERSION` (or manually from the
+Actions tab). The pipeline's output isn't in git — it's built from ~12 GB of local raw
+inputs — so each data snapshot is published as a GitHub release (`data-YYYYMMDD-HHMM`)
+with the CSVs and parquet attached, and `DATA_VERSION` names the release the site serves.
+
+- **Code-only changes** (e.g. `index.html`) go live when merged to `main`.
+- **Data updates**: run `tools/publish_data.sh`. It sets up `.venv` if needed, runs the
+  pipeline (arguments such as `--force lyme` are passed through), stops if the smoke tests
+  fail, uploads the output as a new release, and commits the new `DATA_VERSION`. Push or
+  merge that commit to deploy. `--skip-generate` publishes the current `output/` as-is,
+  and nothing is published if the CSV is unchanged from the current release.
+- **Changes that need both** (new data columns plus `index.html` changes that use them):
+  run `tools/publish_data.sh` on the feature branch so the page and its data go live in
+  the same merge.
+
+To roll back the data, point `DATA_VERSION` at an earlier `data-*` release and push.
 
 ## Criteria
 
