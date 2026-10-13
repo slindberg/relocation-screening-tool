@@ -61,6 +61,7 @@ if [[ -n $current ]] && gh release view "$current" --json body -q .body 2>/dev/n
 fi
 
 source_note="Generated from $(git rev-parse --short HEAD)"
+[[ $skip_generate == 1 ]] && source_note="Published from existing output/ at $(git rev-parse --short HEAD) (not regenerated)"
 if [[ -n $(git status --porcelain -- data_pipeline tools requirements.txt) ]]; then
   source_note+=" with uncommitted pipeline changes"
 fi
