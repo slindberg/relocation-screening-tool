@@ -1,0 +1,47 @@
+# Deploys the site to GitHub Pages: index.html + assets/ + the data CSVs.
+# The CSVs aren't in git (they're built locally from ~12 GB of raw inputs); each data
+# snapshot is a GitHub release, and DATA_VERSION names the one to serve.
+# See tools/publish_data.sh.
+name: Deploy site
+
+on:
+  push:
+    branches: [main]
+    paths: [index.html, "assets/**", DATA_VERSION, .github/workflows/pages.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Assemble site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(tr -d '[:space:]' < DATA_VERSION)
+          mkdir -p _site/output
+          cp -R index.html assets _site/
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir _site/output \
+            --pattern candidate_scores.csv --pattern column_metadata.csv
+          ls -l _site _site/output
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v5
