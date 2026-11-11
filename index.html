@@ -103,9 +103,51 @@ input[type=range]{ width:100%; } input[type=number]{ width:70px; padding:3px 5px
 .btn.sec { background:var(--surface); color:var(--accent); border:1px solid var(--accent-border); }
 .btn:hover{ filter:brightness(1.05);} .btn:disabled{opacity:.5; cursor:default;}
 .flex { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.ctrlbar { justify-content:space-between; flex-wrap:nowrap; gap:14px; }
+.ctrl-find { gap:6px; } .ctrl-find .lbl-state { margin-left:4px; } .ctrl-view { gap:12px; }
+#townSearch { width:160px; } #stateFilter { width:150px; }
 .cols2 { display:grid; grid-template-columns:300px minmax(0,1fr) 312px; gap:12px; align-items:start;}
 @media(max-width:1180px){ .cols2{grid-template-columns:236px minmax(0,1fr) 290px;} }
-@media(max-width:900px){ .cols2{grid-template-columns:1fr;} }
+.detcard { position:sticky; top:6px; }
+/* mobile: flatten the three column wrappers so every card is a grid item, then reorder:
+   map → town breakdown → criteria → filters → ranked towns → display & export */
+@media(max-width:900px){
+  .cols2{grid-template-columns:minmax(0,1fr); gap:0;}
+  .cols2>div{display:contents;}
+  .pane-map{order:1} .pane-detail{order:2} .pane-criteria{order:3} .pane-filters{order:4} .pane-ranked{order:5} .pane-export{order:6}
+  .detcard{position:static;}
+}
+/* phone widths: one column top to bottom, and nothing wider than the screen */
+@media(max-width:900px){
+  /* header: title and tabs share one row; the tabs drop below only if they can't fit */
+  .hdr{display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:0 8px;}
+  .hdr>div:empty{display:none;}
+  /* iOS Safari zooms in on a focused field whose text is under 16px, leaving the page scrolled sideways */
+  input, select, textarea, .crit-row input[type=number]{font-size:16px;}
+  th,td{padding:4px 5px;}
+  /* ranked list: number columns shrink to their content, the town name gets the rest */
+  #restable th:not(:nth-child(2)), #restable td:not(:nth-child(2)){width:1%; white-space:nowrap;}
+  #restable td:nth-child(2){overflow-wrap:anywhere;}
+  .tag{display:inline-block;}
+  /* map search bar: town row, state row, then basemap / reset — stacked instead of side by side */
+  .ctrlbar{flex-direction:column; align-items:stretch; gap:8px;}
+  .ctrl-find{display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:6px 8px;}
+  .ctrl-find .lbl-state{margin-left:0;}
+  .ctrl-find .town-combo{grid-column:span 2;}
+  .acwrap{display:block;}
+  #townSearch, #stateFilter{width:100%;}
+  .ac{right:0; min-width:0;}
+  .ac-item{overflow:hidden; text-overflow:ellipsis;}
+  .ctrl-view{justify-content:space-between;}
+}
+/* phones: smaller title and short tab labels so the header fits on one row */
+@media(max-width:600px){
+  h1{font-size:16px; white-space:nowrap;}
+  #subhead.loaded{display:none;} /* the town count is repeated above the ranked list */
+  .tabs{gap:0;}
+  .tab{padding:4px 8px;}
+  .tab-long{display:none;}
+}
 .legend { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--muted); }
 .legbar { height:10px; width:140px; border-radius:3px; background:linear-gradient(to right,#d73027,#fc8d59,#fee08b,#91cf60,#1a9850); }
 .hidden { display:none; }
@@ -125,8 +167,8 @@ select { padding:4px 6px; border:1px solid var(--input-border); border-radius:4p
   <div class="hdr">
     <div class="topbar"><h1>Relocation Screening</h1><div class="muted small" id="subhead"><span class="spin"></span> Decoding data snapshot…</div></div>
     <div class="tabs" id="tabs" style="display:none">
-      <button class="tab active" data-mode="explore">Explore &amp; Weight</button>
-      <button class="tab" data-mode="quality">Data Quality</button>
+      <button class="tab active" data-mode="explore">Explore<span class="tab-long"> &amp; Weight</span></button>
+      <button class="tab" data-mode="quality"><span class="tab-long">Data </span>Quality</button>
     </div>
     <div></div>
   </div>
@@ -239,7 +281,7 @@ async function boot(){
   // basemap + relief assets
   try{const bm=await fetch(ASSET_DIR+'basemap.json',{cache:'no-cache'}); if(bm.ok){BM=await bm.json(); if(BM&&BM.mb)MB={minx:BM.mb[0],maxx:BM.mb[1],miny:BM.mb[2],maxy:BM.mb[3]};}}catch(e){BM=null;}
   reliefImg=new Image(); reliefImg.onload=()=>{if(MODE==='explore')redrawCompMap();}; reliefImg.onerror=()=>{reliefImg=null;}; reliefImg.src=ASSET_DIR+'relief.png';
-  $('#subhead').innerHTML=`${rows.length.toLocaleString()} towns · ${scoreCols.length} scored criteria`;
+  $('#subhead').innerHTML=`${rows.length.toLocaleString()} towns · ${scoreCols.length} scored criteria`;$('#subhead').classList.add('loaded');
   $('#tabs').style.display='flex';
   $('#tabs').querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>setMode(t.dataset.mode)));
   buildQuality(); buildExplore(); setMode('explore');
@@ -371,7 +413,7 @@ function showCriterionInfo(c){const d=$('#detail');if(!d)return;const md=(DATA.m
 
 function buildExplore(){
   const root=$('#explore');root.innerHTML='';const layout=el('div',{class:'cols2',id:'explayout'});const left=el('div');
-  const cp=el('div',{class:'card'});
+  const cp=el('div',{class:'card pane-criteria'});
   cp.append(el('div',{class:'flex',style:'justify-content:space-between;align-items:baseline;margin-bottom:2px'},
     el('h2',{style:'margin:0'},'Criteria'),
     el('div',{class:'flex',style:'gap:6px'},
@@ -394,7 +436,7 @@ function buildExplore(){
   }
   left.append(cp);
   // ---- Filters (town-level gates, separate from criteria floors) ----
-  const flt=el('div',{class:'card'});flt.append(el('h3',{},'Filters'));
+  const flt=el('div',{class:'card pane-filters'});flt.append(el('h3',{},'Filters'));
   const pf=el('input',{type:'number',min:'0',placeholder:'any',id:'popFloor',style:'width:84px'});pf.addEventListener('input',recompute);
   if(DATA._sess&&DATA._sess.pop) pf.value=DATA._sess.pop;
   flt.append(el('div',{class:'flex',style:'justify-content:space-between;margin-bottom:5px'},el('span',{class:'small'},'Min population'),pf));
@@ -403,7 +445,7 @@ function buildExplore(){
   flt.append(el('div',{class:'flex',style:'justify-content:space-between'},el('span',{class:'small'},'Max elevation (ft)'),ef));
   flt.append(el('div',{class:'small muted',style:'margin-top:5px'},'Towns outside these are dropped from the map, ranking and export.'));
   left.append(flt);
-  const opt=el('div',{class:'card'});opt.append(el('h3',{},'Display & export'));
+  const opt=el('div',{class:'card pane-export'});opt.append(el('h3',{},'Display & export'));
   const topN=el('input',{type:'number',min:'1',value:String((DATA._sess&&DATA._sess.topN)||100),id:'topN',style:'width:80px'});
   topN.addEventListener('input',()=>{renderResults();saveSession();});
   opt.append(el('div',{class:'flex',style:'margin-bottom:6px'},el('span',{class:'small'},'Show / export top:'),topN,el('button',{class:'btn sec',onclick:exportCSV},'Export CSV')));
@@ -416,19 +458,19 @@ function buildExplore(){
   const counts={};DATA.rows.forEach(o=>counts[o.state]=(counts[o.state]||0)+1);
   DATA._counts=counts;
   DATA._states=Object.keys(counts).sort((a,b)=>(STATE_NAMES[a]||a).localeCompare(STATE_NAMES[b]||b));
-  const townInp=el('input',{id:'townSearch',placeholder:'Search town…',style:'width:160px;padding:4px 7px;border:1px solid var(--input-border);border-radius:4px'});
-  const townWrap=makeCombo(townInp,getTownItems,it=>{townInp.value='';selectTown(it.value);});
-  const stateInp=el('input',{id:'stateFilter',placeholder:'Filter by state…',style:'width:150px;padding:4px 7px;border:1px solid var(--input-border);border-radius:4px'});
+  const townInp=el('input',{id:'townSearch',placeholder:'Search town…',style:'padding:4px 7px;border:1px solid var(--input-border);border-radius:4px'});
+  const townWrap=makeCombo(townInp,getTownItems,it=>{townInp.value='';selectTown(it.value);});townWrap.classList.add('town-combo');
+  const stateInp=el('input',{id:'stateFilter',placeholder:'Filter by state…',style:'padding:4px 7px;border:1px solid var(--input-border);border-radius:4px'});
   if(curState) stateInp.value=(STATE_NAMES[curState]||curState);
   const stateWrap=makeCombo(stateInp,getStateItems,pickState);
   const clrBtn=el('button',{class:'btn sec',style:'padding:4px 10px',onclick:()=>{stateInp.value='';curState='';fitState();renderResults();redrawCompMap();saveSession();}},'Clear');
   const bmToggle=el('label',{class:'small muted',style:'cursor:pointer;white-space:nowrap'},(()=>{const b=el('input',{type:'checkbox'});b.checked=showBasemap;b.style.verticalAlign='-2px';b.addEventListener('change',()=>{showBasemap=b.checked;redrawCompMap();saveSession();});return b;})(),' basemap');
-  const ctrlPanel=el('div',{class:'card',style:'padding:6px 10px;margin-bottom:10px'},
-    el('div',{class:'flex',style:'justify-content:space-between;flex-wrap:nowrap;gap:14px'},
-      el('div',{class:'flex',style:'gap:6px'},el('span',{class:'small muted'},'Town:'),townWrap,el('span',{class:'small muted',style:'margin-left:4px'},'State:'),stateWrap,clrBtn),
-      el('div',{class:'flex',style:'gap:12px'},bmToggle,el('button',{class:'btn sec',style:'padding:4px 10px',onclick:resetZoom},'Reset view'))));
+  const ctrlPanel=el('div',{class:'card pane-map',style:'padding:6px 10px;margin-bottom:10px'},
+    el('div',{class:'flex ctrlbar'},
+      el('div',{class:'flex ctrl-find'},el('span',{class:'small muted'},'Town:'),townWrap,el('span',{class:'small muted lbl-state'},'State:'),stateWrap,clrBtn),
+      el('div',{class:'flex ctrl-view'},bmToggle,el('button',{class:'btn sec',style:'padding:4px 10px',onclick:resetZoom},'Reset view'))));
   center.append(ctrlPanel);
-  const mapCard=el('div',{class:'card'});
+  const mapCard=el('div',{class:'card pane-map'});
   mapCard.append(el('div',{style:'position:relative'},legend(),el('span',{class:'small muted',style:'position:absolute;right:2px;top:0'},'scroll = zoom · drag = pan')));
   const cv=el('canvas',{width:960,height:560,id:'compmap'});cv.style.width='100%';cv.style.cursor='grab';
   cv.addEventListener('mousedown',ev=>{mapDrag={x:ev.clientX,y:ev.clientY};mapMoved=false;cv.style.cursor='grabbing';});
@@ -439,11 +481,11 @@ function buildExplore(){
   const mapWrap=el('div',{style:'position:relative'});
   const hover=el('div',{id:'maphover',style:'position:absolute;left:0;right:0;bottom:0;pointer-events:none;text-align:center;padding:5px 0;font-size:13px;font-weight:600;color:var(--text);background:linear-gradient(to top,var(--hover-fade),transparent);display:none'});
   mapWrap.append(cv,hover);mapCard.append(mapWrap);center.append(mapCard);
-  const resCard=el('div',{class:'card'});
+  const resCard=el('div',{class:'card pane-ranked'});
   resCard.append(el('h2',{},'Ranked towns'),el('div',{id:'resmeta',class:'small muted'}),el('div',{id:'restable',style:'max-height:360px;overflow:auto'}));center.append(resCard);
   layout.append(center);
   const rightcol=el('div',{id:'detailcol'});
-  const detCard=el('div',{class:'card',style:'position:sticky;top:6px'});
+  const detCard=el('div',{class:'card detcard pane-detail'});
   detCard.append(el('div',{id:'detail',class:'detail muted'},'Select a town on the map or in the ranked list to see its full breakdown.'));
   rightcol.append(detCard);layout.append(rightcol);
   root.append(layout);refreshProfileList();requestAnimationFrame(sizeCompMap);
