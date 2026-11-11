@@ -140,6 +140,8 @@ input[type=range]{ width:100%; } input[type=number]{ width:70px; padding:3px 5px
   .ac-item{overflow:hidden; text-overflow:ellipsis;}
   .ctrl-view{justify-content:space-between;}
 }
+/* the mouse hint ("scroll = zoom · drag = pan") is wrong for touch: drop it on mobile widths and touch-only devices */
+@media (max-width:900px), (hover:none) and (pointer:coarse){ .maphint{display:none;} }
 /* phones: smaller title and short tab labels so the header fits on one row */
 @media(max-width:600px){
   h1{font-size:16px; white-space:nowrap;}
@@ -471,7 +473,7 @@ function buildExplore(){
       el('div',{class:'flex ctrl-view'},bmToggle,el('button',{class:'btn sec',style:'padding:4px 10px',onclick:resetZoom},'Reset view'))));
   center.append(ctrlPanel);
   const mapCard=el('div',{class:'card pane-map'});
-  mapCard.append(el('div',{style:'position:relative'},legend(),el('span',{class:'small muted',style:'position:absolute;right:2px;top:0'},'scroll = zoom · drag = pan')));
+  mapCard.append(el('div',{style:'position:relative'},legend(),el('span',{class:'small muted maphint',style:'position:absolute;right:2px;top:0'},'scroll = zoom · drag = pan')));
   const cv=el('canvas',{width:960,height:560,id:'compmap'});cv.style.width='100%';cv.style.cursor='grab';
   cv.addEventListener('mousedown',ev=>{mapDrag={x:ev.clientX,y:ev.clientY};mapMoved=false;cv.style.cursor='grabbing';});
   cv.addEventListener('click',ev=>{if(mapMoved){mapMoved=false;return;}const r=cv.getBoundingClientRect(),mx=(ev.clientX-r.left)*cv.width/r.width,my=(ev.clientY-r.top)*cv.height/r.height,o=hitTest(cv,mx,my);if(o){selectedId=o.id;renderResults();redrawCompMap();openDetail();}});
@@ -480,6 +482,7 @@ function buildExplore(){
   cv.addEventListener('mouseleave',()=>{const hv=$('#maphover');if(hv)hv.style.display='none';});
   const mapWrap=el('div',{style:'position:relative'});
   const hover=el('div',{id:'maphover',style:'position:absolute;left:0;right:0;bottom:0;pointer-events:none;text-align:center;padding:5px 0;font-size:13px;font-weight:600;color:var(--text);background:linear-gradient(to top,var(--hover-fade),transparent);display:none'});
+  attachMapTouch(cv);
   mapWrap.append(cv,hover);mapCard.append(mapWrap);center.append(mapCard);
   const resCard=el('div',{class:'card pane-ranked'});
   resCard.append(el('h2',{},'Ranked towns'),el('div',{id:'resmeta',class:'small muted'}),el('div',{id:'restable',style:'max-height:360px;overflow:auto'}));center.append(resCard);
@@ -501,8 +504,35 @@ function currentList(){if(!lastOrder)return[];return curState?lastOrder.filter(x
 function compositeFor(o){let num=0,den=0;for(const c of DATA.criteria){if(!c.enabled||c.weight<=0)continue;const v=o.s[c.scoreCol];if(v==null||Number.isNaN(v))continue;num+=c.weight*v;den+=c.weight;}return den>0?num/den:null;}
 function passesFloors(o){for(const c of DATA.criteria){if(!c.enabled||c.floor==null)continue;const v=o.s[c.scoreCol];if(v==null||v<c.floor)return false;}return true;}
 function recompute(){if(!DATA)return;const arr=[];lastComposite={};for(const o of DATA.rows){const comp=compositeFor(o);lastComposite[o.id]=comp;if(comp!=null&&passesFloors(o)&&passesTownFilters(o))arr.push([o,comp]);}arr.sort((a,b)=>b[1]-a[1]);lastOrder=arr;renderResults();redrawCompMap();if(selectedId)renderDetail();saveSession();}
-function redrawCompMap(){const cv=$('#compmap');if(!cv)return;drawMap(cv,o=>{if(!passesTownFilters(o))return false;if(!passesFloors(o))return false;const c=lastComposite?lastComposite[o.id]:compositeFor(o);return c==null?null:c/100;},{r:1.3,z:mapZoom,tx:mapTX,ty:mapTY,basemap:true,state:curState});}
+function redrawCompMap(){const cv=$('#compmap');if(!cv)return;cv.style.touchAction=mapZoom>1?'none':'pan-y';drawMap(cv,o=>{if(!passesTownFilters(o))return false;if(!passesFloors(o))return false;const c=lastComposite?lastComposite[o.id]:compositeFor(o);return c==null?null:c/100;},{r:1.3,z:mapZoom,tx:mapTX,ty:mapTY,basemap:true,state:curState});}
 function resetZoom(){mapZoom=1;mapTX=0;mapTY=0;redrawCompMap();}
+// touch: pinch zooms around the fingers (and pans as they move); one finger pans once zoomed in.
+// At full extent one finger is left to scroll the page (touch-action: pan-y, set in redrawCompMap),
+// so the map never traps page scrolling. A tap still reaches the click handler and selects a town.
+function attachMapTouch(cv){
+  let g=null,raf=0;
+  const draw=()=>{if(!raf)raf=requestAnimationFrame(()=>{raf=0;redrawCompMap();});};
+  const pt=t=>{const r=cv.getBoundingClientRect();return{x:(t.clientX-r.left)*cv.width/r.width,y:(t.clientY-r.top)*cv.height/r.height};};
+  // (re)start from the fingers now down, so adding or lifting a finger never makes the map jump
+  const begin=(T,moved)=>{
+    if(T.length>=2){const a=pt(T[0]),b=pt(T[1]),mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
+      g={pinch:true,moved,d0:Math.hypot(a.x-b.x,a.y-b.y)||1,z0:mapZoom,bx:(mx-mapTX)/mapZoom,by:(my-mapTY)/mapZoom};}
+    else{const p=pt(T[0]);g={pinch:false,moved,x:p.x,y:p.y,sx:T[0].clientX,sy:T[0].clientY};}};
+  cv.addEventListener('touchstart',e=>{begin(e.touches,g?g.moved:false);if(e.touches.length>=2)e.preventDefault();},{passive:false});
+  cv.addEventListener('touchmove',e=>{if(!g)return;const T=e.touches;
+    if(g.pinch&&T.length>=2){e.preventDefault();
+      const a=pt(T[0]),b=pt(T[1]),mx=(a.x+b.x)/2,my=(a.y+b.y)/2,nz=Math.max(1,Math.min(30,g.z0*Math.hypot(a.x-b.x,a.y-b.y)/g.d0));
+      mapZoom=nz;mapTX=mx-g.bx*nz;mapTY=my-g.by*nz;if(mapZoom<=1.001){mapZoom=1;mapTX=0;mapTY=0;}
+      g.moved=true;draw();}
+    else if(!g.pinch&&T.length===1&&mapZoom>1){e.preventDefault();
+      const p=pt(T[0]);mapTX+=p.x-g.x;mapTY+=p.y-g.y;g.x=p.x;g.y=p.y;
+      if(Math.hypot(T[0].clientX-g.sx,T[0].clientY-g.sy)>4)g.moved=true;draw();}
+  },{passive:false});
+  const end=e=>{if(!g)return;if(e.touches.length){begin(e.touches,g.moved);return;}
+    const moved=g.moved;g=null;if(moved&&e.cancelable)e.preventDefault();}; // a pan or pinch isn't a tap: no click
+  cv.addEventListener('touchend',end,{passive:false});
+  cv.addEventListener('touchcancel',end);
+}
 function sizeCompMap(){const cv=$('#compmap');if(!cv||cv.offsetParent===null)return;if(!MB)MB=computeMapBounds();const cssW=cv.clientWidth||(cv.parentElement&&cv.parentElement.clientWidth)||900;const aspect=(MB.maxx-MB.minx)/(MB.maxy-MB.miny)||1.6;const cssH=Math.max(220,cssW/aspect);const dpr=Math.min(2,window.devicePixelRatio||1);cv.style.height=cssH+'px';cv.width=Math.round(cssW*dpr);cv.height=Math.round(cssH*dpr);redrawCompMap();}
 function applyStateFilter(){const inp=$('#stateFilter');if(!inp)return;const t=inp.value.trim().toLowerCase();let code='';if(t){const S=(DATA._states||[]);for(const s of S){const nm=(STATE_NAMES[s]||s).toLowerCase();if(s.toLowerCase()===t||nm===t){code=s;break;}}if(!code)for(const s of S){const nm=(STATE_NAMES[s]||s).toLowerCase();if(nm.startsWith(t)||s.toLowerCase().startsWith(t)){code=s;break;}}}curState=code;selectedId=null;fitState();renderResults();redrawCompMap();saveSession();}
 function fitState(){const cv=$('#compmap');if(!cv){mapZoom=1;mapTX=0;mapTY=0;return;}
